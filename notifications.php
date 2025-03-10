@@ -38,6 +38,41 @@ $notifications = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 <!-- Include jQuery and custom JavaScript -->
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-<script src="assets/js/realtime.js"></script>
+<script>
+    // WebSocket connection for real-time notifications
+    const socket = new WebSocket('ws://localhost:8080');
+
+    socket.onopen = () => {
+        console.log('Connected to the WebSocket server');
+        // Register the user with the WebSocket server
+        socket.send(JSON.stringify({
+            type: 'register',
+            userId: <?php echo $_SESSION['user_id']; ?>
+        }));
+    };
+
+    socket.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        if (data.type === 'notification') {
+            // Append the new notification to the feed
+            $('#notification-feed').prepend(`
+                <div class="card mb-3">
+                    <div class="card-body">
+                        <p>${data.message}</p>
+                        <small class="text-muted">${new Date().toLocaleString()}</small>
+                    </div>
+                </div>
+            `);
+        }
+    };
+
+    socket.onerror = (error) => {
+        console.error('WebSocket error:', error);
+    };
+
+    socket.onclose = () => {
+        console.log('WebSocket connection closed');
+    };
+</script>
 
 <?php include 'includes/footer.php'; ?>

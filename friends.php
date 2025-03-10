@@ -8,109 +8,163 @@ if (!isset($_SESSION['user_id'])) {
     exit();
 }
 
-// Fetch the user's friends
+// Fetch the users the logged-in user is following
 $stmt = $pdo->prepare("
-    SELECT users.id, users.username
-    FROM friends
-    JOIN users ON friends.friend_id = users.id
-    WHERE friends.user_id = ?
+    SELECT users.id, users.username, users.profile_picture, users.bio
+    FROM followers
+    JOIN users ON followers.following_id = users.id
+    WHERE followers.follower_id = ?
 ");
 $stmt->execute([$_SESSION['user_id']]);
-$friends = $stmt->fetchAll(PDO::FETCH_ASSOC);
+$following = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-// Fetch pending friend requests
+// Fetch the users who are following the logged-in user
 $stmt = $pdo->prepare("
-    SELECT friend_requests.id, users.username, users.id as sender_id
-    FROM friend_requests
-    JOIN users ON friend_requests.sender_id = users.id
-    WHERE friend_requests.receiver_id = ? AND friend_requests.status = 'pending'
+    SELECT users.id, users.username, users.profile_picture, users.bio
+    FROM followers
+    JOIN users ON followers.follower_id = users.id
+    WHERE followers.following_id = ?
 ");
 $stmt->execute([$_SESSION['user_id']]);
-$pending_requests = $stmt->fetchAll(PDO::FETCH_ASSOC);
+$followers = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-// Fetch users who are not friends or have no pending requests
+// Fetch users who are not being followed by the logged-in user
 $stmt = $pdo->prepare("
-    SELECT users.id, users.username
+    SELECT users.id, users.username, users.profile_picture, users.bio
     FROM users
     WHERE users.id != ?
     AND users.id NOT IN (
-        SELECT friend_id FROM friends WHERE user_id = ?
-        UNION
-        SELECT sender_id FROM friend_requests WHERE receiver_id = ?
-        UNION
-        SELECT receiver_id FROM friend_requests WHERE sender_id = ?
+        SELECT following_id FROM followers WHERE follower_id = ?
     )
 ");
-$stmt->execute([$_SESSION['user_id'], $_SESSION['user_id'], $_SESSION['user_id'], $_SESSION['user_id']]);
-$non_friends = $stmt->fetchAll(PDO::FETCH_ASSOC);
+$stmt->execute([$_SESSION['user_id'], $_SESSION['user_id']]);
+$non_following = $stmt->fetchAll(PDO::FETCH_ASSOC);
 ?>
 
-<h1 class="text-center mb-4">Friends</h1>
-
-<!-- Display Pending Friend Requests -->
-<h3>Pending Friend Requests</h3>
-<?php if (empty($pending_requests)): ?>
-    <p>No pending friend requests.</p>
-<?php else: ?>
-    <?php foreach ($pending_requests as $request): ?>
-        <div class="card mb-3">
-            <div class="card-body">
-                <h5 class="card-title"><?php echo htmlspecialchars($request['username']); ?></h5>
-                <form action="handle_friend_request.php" method="POST" style="display: inline;">
-                    <input type="hidden" name="request_id" value="<?php echo $request['id']; ?>">
-                    <input type="hidden" name="action" value="accept">
-                    <button type="submit" class="btn btn-success btn-sm">Accept</button>
-                </form>
-                <form action="handle_friend_request.php" method="POST" style="display: inline;">
-                    <input type="hidden" name="request_id" value="<?php echo $request['id']; ?>">
-                    <input type="hidden" name="action" value="decline">
-                    <button type="submit" class="btn btn-danger btn-sm">Decline</button>
-                </form>
-            </div>
+<div class="container mt-5">
+    <h1 class="text-center mb-4">Your Network</h1>
+    <div class="row">
+        <!-- Followers Column -->
+        <div class="col-md-4">
+            <h3>Followers</h3>
+            <?php if (empty($followers)): ?>
+                <p>No followers yet.</p>
+            <?php else: ?>
+                <?php foreach ($followers as $follower): ?>
+                    <div class="card mb-3">
+                        <div class="card-body">
+                            <img src="assets/images/<?php echo htmlspecialchars($follower['profile_picture']); ?>"
+                                alt="Profile Picture" class="rounded-circle" width="50" height="50">
+                            <h5 class="card-title mt-2">
+                                <a href="profile.php?id=<?php echo $follower['id']; ?>">
+                                    <?php echo htmlspecialchars($follower['username']); ?>
+                                </a>
+                            </h5>
+                            <p class="card-text"><?php echo htmlspecialchars($follower['bio']); ?></p>
+                        </div>
+                    </div>
+                <?php endforeach; ?>
+            <?php endif; ?>
         </div>
-    <?php endforeach; ?>
-<?php endif; ?>
 
-<!-- Display Friends List -->
-<h3>Your Friends</h3>
-<?php if (empty($friends)): ?>
-    <p>No friends yet.</p>
-<?php else: ?>
-    <?php foreach ($friends as $friend): ?>
-        <div class="card mb-3">
-            <div class="card-body">
-                <h5 class="card-title">
-                    <a href="profile.php?id=<?php echo $friend['id']; ?>">
-                        <?php echo htmlspecialchars($friend['username']); ?>
-                    </a>
-                </h5>
-                <form action="handle_friend_request.php" method="POST" style="display: inline;">
-                    <input type="hidden" name="friend_id" value="<?php echo $friend['id']; ?>">
-                    <input type="hidden" name="action" value="remove">
-                    <button type="submit" class="btn btn-danger btn-sm">Remove Friend</button>
-                </form>
-            </div>
+        <!-- Following Column -->
+        <div class="col-md-4">
+            <h3>Following</h3>
+            <?php if (empty($following)): ?>
+                <p>You are not following anyone.</p>
+            <?php else: ?>
+                <?php foreach ($following as $user): ?>
+                    <div class="card mb-3" id="following-<?php echo $user['id']; ?>">
+                        <div class="card-body">
+                            <img src="assets/images/<?php echo htmlspecialchars($user['profile_picture']); ?>"
+                                alt="Profile Picture" class="rounded-circle" width="50" height="50">
+                            <h5 class="card-title mt-2">
+                                <a href="profile.php?id=<?php echo $user['id']; ?>">
+                                    <?php echo htmlspecialchars($user['username']); ?>
+                                </a>
+                            </h5>
+                            <p class="card-text"><?php echo htmlspecialchars($user['bio']); ?></p>
+                            <button class="btn btn-danger btn-sm unfollow-button"
+                                data-user-id="<?php echo $user['id']; ?>">Unfollow</button>
+                        </div>
+                    </div>
+                <?php endforeach; ?>
+            <?php endif; ?>
         </div>
-    <?php endforeach; ?>
-<?php endif; ?>
 
-<!-- Display Non-Friends -->
-<h3>Add Friends</h3>
-<?php if (empty($non_friends)): ?>
-    <p>No users to add.</p>
-<?php else: ?>
-    <?php foreach ($non_friends as $user): ?>
-        <div class="card mb-3">
-            <div class="card-body">
-                <h5 class="card-title"><?php echo htmlspecialchars($user['username']); ?></h5>
-                <form action="handle_friend_request.php" method="POST" style="display: inline;">
-                    <input type="hidden" name="receiver_id" value="<?php echo $user['id']; ?>">
-                    <input type="hidden" name="action" value="send">
-                    <button type="submit" class="btn btn-primary btn-sm">Send Friend Request</button>
-                </form>
-            </div>
+        <!-- Suggested Users Column -->
+        <div class="col-md-4">
+            <h3>Suggested Users</h3>
+            <?php if (empty($non_following)): ?>
+                <p>No users to follow.</p>
+            <?php else: ?>
+                <?php foreach ($non_following as $user): ?>
+                    <div class="card mb-3" id="user-<?php echo $user['id']; ?>">
+                        <div class="card-body">
+                            <img src="assets/images/<?php echo htmlspecialchars($user['profile_picture']); ?>"
+                                alt="Profile Picture" class="rounded-circle" width="50" height="50">
+                            <h5 class="card-title mt-2"><?php echo htmlspecialchars($user['username']); ?></h5>
+                            <p class="card-text"><?php echo htmlspecialchars($user['bio']); ?></p>
+                            <button class="btn btn-primary btn-sm follow-button"
+                                data-user-id="<?php echo $user['id']; ?>">Follow</button>
+                        </div>
+                    </div>
+                <?php endforeach; ?>
+            <?php endif; ?>
         </div>
-    <?php endforeach; ?>
-<?php endif; ?>
+    </div>
+</div>
+
+<!-- Include jQuery -->
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script>
+    // Follow a user
+    $(document).on('click', '.follow-button', function () {
+        const userId = $(this).data('user-id');
+        const button = $(this);
+
+        $.ajax({
+            url: 'handle_follow.php',
+            method: 'POST',
+            data: { following_id: userId, action: 'follow' },
+            success: function (response) {
+                // Move the user card to the "Following" section
+                const userCard = $('#user-' + userId);
+                userCard.find('.follow-button').remove();
+                userCard.append('<button class="btn btn-danger btn-sm unfollow-button" data-user-id="' + userId + '">Unfollow</button>');
+                $('#following-list').append(userCard);
+                alert('Followed successfully.');
+            },
+            error: function (xhr, status, error) {
+                console.error('Error following user:', error);
+                alert('Failed to follow user.');
+            }
+        });
+    });
+
+    // Unfollow a user
+    $(document).on('click', '.unfollow-button', function () {
+        const userId = $(this).data('user-id');
+        const button = $(this);
+
+        $.ajax({
+            url: 'handle_follow.php',
+            method: 'POST',
+            data: { following_id: userId, action: 'unfollow' },
+            success: function (response) {
+                // Move the user card to the "Non-Following" section
+                const userCard = $('#following-' + userId);
+                userCard.find('.unfollow-button').remove();
+                userCard.append('<button class="btn btn-primary btn-sm follow-button" data-user-id="' + userId + '">Follow</button>');
+                $('#non-following-list').append(userCard);
+                alert('Unfollowed successfully.');
+            },
+            error: function (xhr, status, error) {
+                console.error('Error unfollowing user:', error);
+                alert('Failed to unfollow user.');
+            }
+        });
+    });
+</script>
 
 <?php include 'includes/footer.php'; ?>
