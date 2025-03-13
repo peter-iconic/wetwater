@@ -83,7 +83,7 @@ if (isset($_SESSION['user_id'])) {
                         <span class="d-none d-lg-inline">Profile</span>
                     </a>
                     <!-- Messages -->
-                    <a class="nav-link" href="messages.php" title="Messages">
+                    <a class="nav-link" href="videos.php" title="Messages">
                         <i class="bi bi-chat"></i>
                         <span class="d-none d-lg-inline">Messages</span>
                     </a>

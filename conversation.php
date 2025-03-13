@@ -32,7 +32,6 @@ if (!$other_user) {
 }
 ?>
 
-<h1 class="text-center mb-4">Conversation with <?php echo htmlspecialchars($other_user['username']); ?></h1>
 
 <!-- Display Messages -->
 <div id="conversation">

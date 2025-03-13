@@ -71,7 +71,6 @@ if (isset($_GET['search'])) {
 }
 ?>
 
-<h1 class="text-center mb-4">Messages</h1>
 
 <!-- Search Bar -->
 <div class="mb-4">
@@ -85,10 +84,13 @@ if (isset($_GET['search'])) {
 </div>
 
 <!-- Display Online Friends (Mutual Followers) -->
-<h3>Online Friends</h3>
 <?php if (empty($online_users)): ?>
-    <p class="text-center">No friends online.</p>
-<?php else: ?>
+    <!-- Button to Start New Chat -->
+    <div class="text-center mt-4">
+        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#newConversationModal">
+            Start New Conversation
+        </button>
+    </div><?php else: ?>
     <div class="row">
         <?php foreach ($online_users as $user): ?>
             <div class="col-md-4 mb-3">
@@ -114,7 +116,6 @@ if (isset($_GET['search'])) {
 <?php endif; ?>
 
 <!-- Display Conversations -->
-<h3>Previous Conversations</h3>
 <?php if (empty($conversations)): ?>
     <p class="text-center">No conversations yet.</p>
 <?php else: ?>
@@ -148,12 +149,10 @@ if (isset($_GET['search'])) {
     </div>
 <?php endif; ?>
 
-<!-- Button to Start New Chat -->
-<div class="text-center mt-4">
-    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#newConversationModal">
-        Start New Conversation
-    </button>
-</div>
+
+
+
+
 
 <!-- Modal for Starting New Conversation -->
 <div class="modal fade" id="newConversationModal" tabindex="-1" aria-labelledby="newConversationModalLabel"

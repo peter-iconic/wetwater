@@ -172,7 +172,7 @@ $stories = $stmt->fetchAll(PDO::FETCH_ASSOC);
                             style="width: 80px; height: 80px;">
                             <i class="bi bi-plus-lg" style="font-size: 2rem;"></i>
                         </a>
-                        <p class="text-center mt-2">Add Story</p>
+                        <p class="text-center mt-2">day</p>
                     </div>
 
                     <!-- Display Stories -->
@@ -190,10 +190,6 @@ $stories = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 </div>
             </div>
 
-            <!-- Link to Create Post Page -->
-            <div class="text-center mb-4">
-                <a href="create_post.php" class="btn btn-primary">Create a New Post</a>
-            </div>
 
             <!-- Display Approved Ad -->
             <?php if ($ad): ?>
@@ -570,5 +566,4 @@ $stories = $stmt->fetchAll(PDO::FETCH_ASSOC);
         });
     });
 </script>
-
-<?php include 'includes/footer.php'; ?>
+<?php include 'includes/bottom_nav.php'; ?>

@@ -25,9 +25,7 @@ if (!isset($_SESSION['user_id'])) {
 
 <!-- Post Creation Form -->
 <form action="create_post_process.php" method="POST" enctype="multipart/form-data">
-    <div class="mb-3">
-        <label for="content" class="form-label">What's on your mind?</label>
-        <!-- Textarea with emoji and flag picker -->
+    <div class="mb-3"> <!-- Textarea with emoji and flag picker -->
         <textarea class="form-control" id="content" name="content" rows="3" required></textarea>
         <!-- Emoji Picker Button -->
         <button type="button" class="btn btn-sm btn-outline-secondary mt-2" id="emojiPickerBtn">

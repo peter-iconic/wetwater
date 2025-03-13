@@ -18,7 +18,6 @@ $stmt->execute([$_SESSION['user_id']]);
 $notifications = $stmt->fetchAll(PDO::FETCH_ASSOC);
 ?>
 
-<h1 class="text-center mb-4">Notifications</h1>
 
 <!-- Display Notifications -->
 <div id="notification-feed">
