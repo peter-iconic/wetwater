@@ -2,7 +2,6 @@
 include 'config/db.php';
 include 'includes/header.php';
 
-// Check if a user ID is provided in the URL
 if (!isset($_GET['id'])) {
     die("User ID not specified.");
 }
@@ -18,17 +17,28 @@ if (!$user) {
     die("User not found.");
 }
 
-// Fetch user's posts
-$stmt = $pdo->prepare("SELECT * FROM posts WHERE user_id = ? ORDER BY created_at DESC");
+// Fetch user's posts with additional data
+$stmt = $pdo->prepare("
+    SELECT 
+        posts.*,
+        users.username,
+        (SELECT COUNT(*) FROM reactions WHERE reactions.post_id = posts.id AND type = 'like') AS like_count,
+        (SELECT COUNT(*) FROM reactions WHERE reactions.post_id = posts.id AND type = 'dislike') AS dislike_count,
+        (SELECT COUNT(*) FROM comments WHERE comments.post_id = posts.id) AS comment_count,
+        (SELECT COUNT(*) FROM posts AS reposts WHERE reposts.original_post_id = posts.id) AS repost_count
+    FROM posts 
+    JOIN users ON posts.user_id = users.id
+    WHERE posts.user_id = ? 
+    ORDER BY posts.created_at DESC
+");
 $stmt->execute([$user_id]);
 $posts = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-// Fetch number of followers
+// Fetch followers/following counts
 $stmt = $pdo->prepare("SELECT COUNT(*) AS followers_count FROM followers WHERE following_id = ?");
 $stmt->execute([$user_id]);
 $followers_count = $stmt->fetch(PDO::FETCH_ASSOC)['followers_count'];
 
-// Fetch number of users the user is following
 $stmt = $pdo->prepare("SELECT COUNT(*) AS following_count FROM followers WHERE follower_id = ?");
 $stmt->execute([$user_id]);
 $following_count = $stmt->fetch(PDO::FETCH_ASSOC)['following_count'];
@@ -36,98 +46,297 @@ $following_count = $stmt->fetch(PDO::FETCH_ASSOC)['following_count'];
 
 <div class="container mt-4">
     <div class="row">
+        <!-- Left Column - Profile Info -->
         <div class="col-md-4">
-            <!-- Profile Card -->
-            <div class="card">
+            <div class="card mb-4">
                 <div class="card-body text-center">
                     <img src="assets/images/<?php echo htmlspecialchars($user['profile_picture']); ?>"
-                        alt="Profile Picture" class="rounded-circle mb-3" width="150" height="150">
+                        class="rounded-circle mb-3" width="150" height="150">
                     <h3><?php echo htmlspecialchars($user['username']); ?></h3>
                     <p class="text-muted"><?php echo htmlspecialchars($user['email']); ?></p>
-                    <p>Member since: <?php echo date('F Y', strtotime($user['created_at'])); ?></p>
 
-                    <!-- Bio -->
-                    <?php if (!empty($user['bio'])): ?>
-                        <p class="mt-3"><?php echo htmlspecialchars($user['bio']); ?></p>
-                    <?php endif; ?>
-
-                    <!-- Followers and Following Count -->
-                    <div class="d-flex justify-content-around mt-3">
+                    <div class="d-flex justify-content-around mb-3">
                         <div>
-                            <h5><?php echo $followers_count; ?></h5>
-                            <p class="text-muted">Followers</p>
+                            <a href="#" class="text-decoration-none" data-bs-toggle="modal"
+                                data-bs-target="#followersModal">
+                                <h5 class="mb-0"><?php echo $followers_count; ?></h5>
+                                <p class="text-muted">Followers</p>
+                            </a>
                         </div>
                         <div>
-                            <h5><?php echo $following_count; ?></h5>
-                            <p class="text-muted">Following</p>
+                            <a href="#" class="text-decoration-none" data-bs-toggle="modal"
+                                data-bs-target="#followingModal">
+                                <h5 class="mb-0"><?php echo $following_count; ?></h5>
+                                <p class="text-muted">Following</p>
+                            </a>
                         </div>
                     </div>
 
-                    <!-- Edit Profile Button (only visible to the logged-in user) -->
+                    <?php if (!empty($user['bio'])): ?>
+                        <p><?php echo htmlspecialchars($user['bio']); ?></p>
+                    <?php endif; ?>
+
                     <?php if (isset($_SESSION['user_id']) && $_SESSION['user_id'] == $user_id): ?>
-                        <a href="edit_profile.php" class="btn btn-secondary">Edit Profile</a>
+                        <a href="edit_profile.php" class="btn btn-outline-primary">Edit Profile</a>
                     <?php endif; ?>
                 </div>
             </div>
 
-            <!-- Additional User Information -->
-            <div class="card mt-3">
+            <div class="card">
                 <div class="card-body">
-                    <h5 class="card-title">About Me</h5>
-                    <?php if (!empty($user['full_name'])): ?>
-                        <p><strong>Full Name:</strong> <?php echo htmlspecialchars($user['full_name']); ?></p>
-                    <?php endif; ?>
+                    <h5>Details</h5>
                     <?php if (!empty($user['location'])): ?>
-                        <p><strong>Location:</strong> <?php echo htmlspecialchars($user['location']); ?></p>
-                    <?php endif; ?>
-                    <?php if (!empty($user['interests'])): ?>
-                        <p><strong>Interests:</strong> <?php echo htmlspecialchars($user['interests']); ?></p>
-                    <?php endif; ?>
-                    <?php if (!empty($user['education'])): ?>
-                        <p><strong>Education:</strong> <?php echo htmlspecialchars($user['education']); ?></p>
-                    <?php endif; ?>
-                    <?php if (!empty($user['work'])): ?>
-                        <p><strong>Work:</strong> <?php echo htmlspecialchars($user['work']); ?></p>
+                        <p><i class="bi bi-geo-alt"></i> <?php echo htmlspecialchars($user['location']); ?></p>
                     <?php endif; ?>
                     <?php if (!empty($user['website'])): ?>
-                        <p><strong>Website:</strong> <a href="<?php echo htmlspecialchars($user['website']); ?>"
-                                target="_blank"><?php echo htmlspecialchars($user['website']); ?></a></p>
-                    <?php endif; ?>
-                    <?php if (!empty($user['phone'])): ?>
-                        <p><strong>Phone:</strong> <?php echo htmlspecialchars($user['phone']); ?></p>
+                        <p><i class="bi bi-link-45deg"></i> <a
+                                href="<?php echo htmlspecialchars($user['website']); ?>">Website</a></p>
                     <?php endif; ?>
                 </div>
             </div>
         </div>
+
+        <!-- Right Column - Posts Grid -->
         <div class="col-md-8">
-            <!-- User's Posts -->
-            <h2>Posts</h2>
+            <h2 class="mb-4">Posts</h2>
+
             <?php if (empty($posts)): ?>
-                <p>No posts yet.</p>
+                <div class="alert alert-info">No posts yet.</div>
             <?php else: ?>
-                <?php foreach ($posts as $post): ?>
-                    <div class="card mb-3">
-                        <div class="card-body">
-                            <p class="card-text"><?php echo htmlspecialchars($post['content']); ?></p>
-                            <?php if (!empty($post['image'])): ?>
-                                <div class="text-center mt-3">
-                                    <?php
-                                    $image_path = "" . htmlspecialchars($post['image']);
-                                    if (file_exists($image_path)) {
-                                        echo '<img src="' . $image_path . '" alt="Post Image" class="img-fluid rounded" style="max-width: 100%; height: auto;">';
-                                    } else {
-                                        echo '<p class="text-danger">Image not found: ' . $image_path . '</p>'; // Debugging: Print error if image is missing
-                                    }
-                                    ?>
+                <div class="row row-cols-1 row-cols-md-2 g-4">
+                    <?php foreach ($posts as $post): ?>
+                        <div class="col">
+                            <div class="card h-100">
+                                <?php if (!empty($post['image'])): ?>
+                                    <img src="<?php echo htmlspecialchars($post['image']); ?>" class="card-img-top"
+                                        alt="Post image">
+                                <?php endif; ?>
+
+                                <div class="card-body">
+                                    <p class="card-text"><?php echo htmlspecialchars($post['content']); ?></p>
+                                    <small class="text-muted">
+                                        <?php echo date('M j, Y', strtotime($post['created_at'])); ?>
+                                    </small>
                                 </div>
-                            <?php endif; ?>
-                            <small class="text-muted">Posted on: <?php echo $post['created_at']; ?></small>
+
+                                <div class="card-footer bg-transparent">
+                                    <div class="d-flex justify-content-between">
+                                        <!-- Like Button -->
+                                        <button class="btn btn-sm btn-outline-primary like-btn"
+                                            data-post-id="<?php echo $post['id']; ?>">
+                                            ❤️ <span class="like-count"><?php echo $post['like_count']; ?></span>
+                                        </button>
+
+                                        <!-- Comment Button -->
+                                        <button class="btn btn-sm btn-outline-secondary toggle-comments"
+                                            data-post-id="<?php echo $post['id']; ?>">
+                                            💬 <span class="comment-count"><?php echo $post['comment_count']; ?></span>
+                                        </button>
+
+                                        <!-- Repost Button -->
+                                        <button class="btn btn-sm btn-outline-success repost-btn"
+                                            data-post-id="<?php echo $post['id']; ?>">
+                                            🔄 <span class="repost-count"><?php echo $post['repost_count']; ?></span>
+                                        </button>
+                                    </div>
+
+                                    <!-- Comments Section -->
+                                    <div class="comments-section mt-3" id="comments-<?php echo $post['id']; ?>"
+                                        style="display: none;">
+                                        <?php
+                                        $stmt = $pdo->prepare("
+                                            SELECT comments.*, users.username, users.profile_picture 
+                                            FROM comments 
+                                            JOIN users ON comments.user_id = users.id 
+                                            WHERE post_id = ? 
+                                            ORDER BY created_at DESC 
+                                            LIMIT 3
+                                        ");
+                                        $stmt->execute([$post['id']]);
+                                        $comments = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                                        ?>
+
+                                        <?php if (!empty($comments)): ?>
+                                            <div class="mt-2">
+                                                <?php foreach ($comments as $comment): ?>
+                                                    <div class="d-flex mb-2">
+                                                        <img src="assets/images/<?php echo htmlspecialchars($comment['profile_picture']); ?>"
+                                                            class="rounded-circle me-2" width="32" height="32">
+                                                        <div>
+                                                            <strong><?php echo htmlspecialchars($comment['username']); ?></strong>
+                                                            <p class="mb-0"><?php echo htmlspecialchars($comment['content']); ?></p>
+                                                            <small class="text-muted">
+                                                                <?php echo date('M j', strtotime($comment['created_at'])); ?>
+                                                            </small>
+                                                        </div>
+                                                    </div>
+                                                <?php endforeach; ?>
+                                            </div>
+                                        <?php endif; ?>
+
+                                        <!-- Comment Form -->
+                                        <form class="comment-form mt-2" data-post-id="<?php echo $post['id']; ?>">
+                                            <input type="hidden" name="post_id" value="<?php echo $post['id']; ?>">
+                                            <div class="input-group">
+                                                <input type="text" name="content" class="form-control"
+                                                    placeholder="Add a comment...">
+                                                <button type="submit" class="btn btn-primary">Post</button>
+                                            </div>
+                                        </form>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
-                    </div>
-                <?php endforeach; ?>
+                    <?php endforeach; ?>
+                </div>
             <?php endif; ?>
         </div>
     </div>
 </div>
+
+<!-- Followers Modal -->
+<div class="modal fade" id="followersModal" tabindex="-1" aria-labelledby="followersModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="followersModalLabel">Followers</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <?php
+                $stmt = $pdo->prepare("
+                    SELECT users.id, users.username, users.profile_picture 
+                    FROM followers 
+                    JOIN users ON followers.follower_id = users.id 
+                    WHERE following_id = ?
+                ");
+                $stmt->execute([$user_id]);
+                $followers = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+                if (empty($followers)): ?>
+                    <p>No followers yet.</p>
+                <?php else: ?>
+                    <div class="list-group">
+                        <?php foreach ($followers as $follower): ?>
+                            <a href="profile.php?id=<?php echo $follower['id']; ?>"
+                                class="list-group-item list-group-item-action">
+                                <div class="d-flex align-items-center">
+                                    <img src="assets/images/<?php echo htmlspecialchars($follower['profile_picture']); ?>"
+                                        class="rounded-circle me-3" width="40" height="40">
+                                    <span><?php echo htmlspecialchars($follower['username']); ?></span>
+                                </div>
+                            </a>
+                        <?php endforeach; ?>
+                    </div>
+                <?php endif; ?>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Following Modal -->
+<div class="modal fade" id="followingModal" tabindex="-1" aria-labelledby="followingModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="followingModalLabel">Following</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <?php
+                $stmt = $pdo->prepare("
+                    SELECT users.id, users.username, users.profile_picture 
+                    FROM followers 
+                    JOIN users ON followers.following_id = users.id 
+                    WHERE follower_id = ?
+                ");
+                $stmt->execute([$user_id]);
+                $following = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+                if (empty($following)): ?>
+                    <p>Not following anyone yet.</p>
+                <?php else: ?>
+                    <div class="list-group">
+                        <?php foreach ($following as $followed_user): ?>
+                            <a href="profile.php?id=<?php echo $followed_user['id']; ?>"
+                                class="list-group-item list-group-item-action">
+                                <div class="d-flex align-items-center">
+                                    <img src="assets/images/<?php echo htmlspecialchars($followed_user['profile_picture']); ?>"
+                                        class="rounded-circle me-3" width="40" height="40">
+                                    <span><?php echo htmlspecialchars($followed_user['username']); ?></span>
+                                </div>
+                            </a>
+                        <?php endforeach; ?>
+                    </div>
+                <?php endif; ?>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    $(document).ready(function () {
+        // Toggle comments section
+        $('.toggle-comments').on('click', function () {
+            const postId = $(this).data('post-id');
+            $('#comments-' + postId).toggle();
+        });
+
+        // Handle like button click
+        $('.like-btn').on('click', function () {
+            const postId = $(this).data('post-id');
+            const likeCount = $(this).find('.like-count');
+            const currentCount = parseInt(likeCount.text());
+
+            $.ajax({
+                url: 'handle_reaction.php',
+                method: 'POST',
+                data: { post_id: postId, type: 'like' },
+                success: function (response) {
+                    if (response.liked) {
+                        likeCount.text(currentCount + 1);
+                        $(this).removeClass('btn-outline-primary').addClass('btn-primary');
+                    } else {
+                        likeCount.text(currentCount - 1);
+                        $(this).removeClass('btn-primary').addClass('btn-outline-primary');
+                    }
+                }
+            });
+        });
+
+        // Handle comment submission
+        $('.comment-form').on('submit', function (e) {
+            e.preventDefault();
+            const form = $(this);
+            const postId = form.data('post-id');
+            const commentContent = form.find('input[name="content"]');
+            const commentCount = form.closest('.card-footer').find('.comment-count');
+
+            $.ajax({
+                url: 'add_comment.php',
+                method: 'POST',
+                data: form.serialize(),
+                success: function (response) {
+                    if (response.success) {
+                        // Update comment count
+                        commentCount.text(parseInt(commentCount.text()) + 1);
+
+                        // Clear the input
+                        commentContent.val('');
+
+                        // Reload comments section
+                        $('#comments-' + postId + ' > div:first').load(' #comments-' + postId + ' > div:first > *');
+                    }
+                }
+            });
+        });
+
+        // Load followers/following modals
+        $('[data-bs-toggle="modal"]').on('click', function () {
+            const modalId = $(this).data('bs-target');
+            $(modalId).modal('show');
+        });
+    });
+</script>
 
 <?php include 'includes/footer.php'; ?>

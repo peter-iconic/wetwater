@@ -21,4 +21,116 @@ footer {
 
 .rounded-circle {
   border: 3px solid #e0e0e0;
+} /* Purple Theme */
+:root {
+  --primary-color: #6a1b9a; /* Deep Purple */
+  --secondary-color: #9c27b0; /* Medium Purple */
+  --background-color: #f3e5f5; /* Light Purple */
+  --text-color: #4a148c; /* Dark Purple */
+  --button-hover-color: #7b1fa2; /* Slightly Darker Purple */
+  --card-background: #ffffff; /* White for cards */
+  --card-border-color: #e1bee7; /* Light Purple Border */
+}
+
+body {
+  background-color: var(--background-color);
+  color: var(--text-color);
+}
+
+.btn-primary {
+  background-color: var(--primary-color);
+  border-color: var(--primary-color);
+}
+
+.btn-primary:hover {
+  background-color: var(--button-hover-color);
+  border-color: var(--button-hover-color);
+}
+
+.card {
+  background-color: var(--card-background);
+  border: 1px solid var(--card-border-color);
+}
+
+.card-title {
+  color: var(--primary-color);
+}
+
+.text-success {
+  color: var(--secondary-color) !important;
+}
+
+.modal-content {
+  background-color: var(--background-color);
+}
+
+.modal-header,
+.modal-footer {
+  border-color: var(--primary-color);
+}
+
+.list-group-item {
+  background-color: var(--background-color);
+  border-color: var(--primary-color);
+}
+
+.list-group-item:hover {
+  background-color: var(--primary-color);
+  color: white;
+}
+
+.story-card {
+  background-color: var(--primary-color);
+  color: white;
+  border-radius: 10px;
+  padding: 10px;
+  text-align: center;
+}
+
+.story-card img {
+  border: 2px solid var(--secondary-color);
+}
+
+.story-card a {
+  color: white;
+  text-decoration: none;
+}
+
+.story-card a:hover {
+  color: var(--background-color);
+}
+
+/* Custom styles for reactions and comments */
+.like-btn {
+  color: var(--primary-color);
+  border-color: var(--primary-color);
+}
+
+.dislike-btn {
+  color: var(--secondary-color);
+  border-color: var(--secondary-color);
+}
+
+.share-btn {
+  color: var(--primary-color);
+  border-color: var(--primary-color);
+}
+
+.share-btn:hover {
+  background-color: var(--primary-color);
+  color: white;
+}
+
+.comment-form textarea {
+  border-color: var(--primary-color);
+}
+
+.comment-form button {
+  background-color: var(--primary-color);
+  border-color: var(--primary-color);
+}
+
+.comment-form button:hover {
+  background-color: var(--button-hover-color);
+  border-color: var(--button-hover-color);
 }

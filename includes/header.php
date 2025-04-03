@@ -1,11 +1,19 @@
 <?php
 session_start();
+// Redirect if the user is not logged in
+
 include 'config/db.php';
 
 // Update last_activity timestamp for the logged-in user
 if (isset($_SESSION['user_id'])) {
     $stmt = $pdo->prepare("UPDATE users SET last_activity = NOW() WHERE id = ?");
     $stmt->execute([$_SESSION['user_id']]);
+
+    // Fetch user details to check if the user is an admin
+    $stmt = $pdo->prepare("SELECT is_admin FROM users WHERE id = ?");
+    $stmt->execute([$_SESSION['user_id']]);
+    $user = $stmt->fetch(PDO::FETCH_ASSOC);
+    $is_admin = $user['is_admin'] ?? 0; // Default to 0 (not admin) if the column doesn't exist
 }
 ?>
 <!DOCTYPE html>
@@ -61,6 +69,67 @@ if (isset($_SESSION['user_id'])) {
         .search-icon {
             cursor: pointer;
         }
+
+        /* Hide specific links on mobile devices */
+        @media (max-width: 767.98px) {
+
+            .nav-link.profile,
+            .nav-link.videos,
+            .nav-link.messages {
+                display: none;
+            }
+        }
+
+
+        body {
+            background-color: #1a1a2e;
+            /* Dark Purple */
+            color: #e0e0e0;
+            /* Light Gray for contrast */
+        }
+
+        .navbar {
+            background-color: #4b0082 !important;
+            /* Deep Purple */
+        }
+
+        .navbar-brand,
+        .nav-link {
+            color: #e0e0e0 !important;
+            /* Light Gray */
+        }
+
+        .nav-link:hover {
+            color: #ffcc00 !important;
+            /* Gold for contrast */
+        }
+
+        .btn-outline-light {
+            border-color: #ffcc00 !important;
+            color: #ffcc00 !important;
+        }
+
+        .btn-outline-light:hover {
+            background-color: #ffcc00 !important;
+            color: #1a1a2e !important;
+        }
+
+        .search-input {
+            background-color: #22223b;
+            /* Darker Purple */
+            color: white;
+            border: 1px solid #ffcc00;
+        }
+
+        .search-icon {
+            color: #ffcc00 !important;
+        }
+
+        .badge.bg-danger {
+            background-color: #ffcc00 !important;
+            /* Change notification badge to gold */
+            color: #1a1a2e !important;
+        }
     </style>
 </head>
 
@@ -78,12 +147,12 @@ if (isset($_SESSION['user_id'])) {
                     $unread_count = $stmt->fetch(PDO::FETCH_ASSOC)['unread_count'];
                     ?>
                     <!-- Profile -->
-                    <a class="nav-link" href="profile.php?id=<?php echo $_SESSION['user_id']; ?>" title="Profile">
+                    <a class="nav-link profile" href="profile.php?id=<?php echo $_SESSION['user_id']; ?>" title="Profile">
                         <i class="bi bi-person"></i>
                         <span class="d-none d-lg-inline">Profile</span>
                     </a>
                     <!-- Messages -->
-                    <a class="nav-link" href="videos.php" title="Messages">
+                    <a class="nav-link messages" href="messages.php" title="Messages">
                         <i class="bi bi-chat"></i>
                         <span class="d-none d-lg-inline">Messages</span>
                     </a>
@@ -111,10 +180,17 @@ if (isset($_SESSION['user_id'])) {
                         <span class="d-none d-lg-inline">create ad</span>
                     </a>
                     <!-- Logout -->
-                    <a class="nav-link" href="logout.php" title="Logout">
-                        <i class="bi bi-box-arrow-right"></i>
-                        <span class="d-none d-lg-inline">Logout</span>
+                    <a class="nav-link videos" href="videos.php" title="videos">
+                        <i class="bi bi-play-circle"></i>
+                        <span class="d-none d-lg-inline">videos</span>
                     </a>
+                    <!-- Dashboard (Admin Only) -->
+                    <?php if ($is_admin): ?>
+                        <a class="nav-link" href="admin.php" title="Dashboard">
+                            <i class="bi bi-speedometer2"></i>
+                            <span class="d-none d-lg-inline">Dashboard</span>
+                        </a>
+                    <?php endif; ?>
                 <?php else: ?>
                     <!-- Login -->
                     <a class="nav-link" href="login.php" title="Login">
@@ -166,3 +242,6 @@ if (isset($_SESSION['user_id'])) {
                 });
             });
         </script>
+</body>
+
+</html>

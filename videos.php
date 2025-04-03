@@ -114,6 +114,39 @@ foreach ($videos as &$video) {
             color: white;
             cursor: pointer;
         }
+
+        /* Comments Overlay */
+        .comments-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .comments-container {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            width: 90%;
+            max-width: 500px;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+
+        .close-comments {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            color: white;
+            font-size: 24px;
+            cursor: pointer;
+        }
     </style>
 </head>
 
@@ -158,6 +191,14 @@ foreach ($videos as &$video) {
                 </div>
             </div>
         <?php endforeach; ?>
+    </div>
+
+    <!-- Comments Overlay -->
+    <div class="comments-overlay" id="commentsOverlay">
+        <div class="comments-container" id="commentsContainer">
+            <!-- Comments will be loaded here -->
+        </div>
+        <div class="close-comments" onclick="closeComments()">&times;</div>
     </div>
 
     <script>
@@ -212,25 +253,7 @@ foreach ($videos as &$video) {
                     title: 'Check out this video!',
                     url: videoUrl
                 }).then(() => {
-                    // Increment share count
-                    fetch('increment_share.php', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({ video_id: videoId })
-                    })
-                        .then(response => response.json())
-                        .then(data => {
-                            if (data.success) {
-                                location.reload(); // Refresh the page to update the share count
-                            } else {
-                                alert('Failed to update share count.');
-                            }
-                        })
-                        .catch(error => {
-                            console.error('Error:', error);
-                        });
+                    incrementShareCount(videoId);
                 }).catch((error) => {
                     console.error('Error sharing video:', error);
                 });
@@ -251,7 +274,7 @@ foreach ($videos as &$video) {
                 .then(response => response.json())
                 .then(data => {
                     if (data.success) {
-                        location.reload(); // Refresh the page to update reactions
+                        location.reload();
                     } else {
                         alert('Failed to react to video.');
                     }
@@ -261,10 +284,58 @@ foreach ($videos as &$video) {
                 });
         }
 
-        // Show comments
+        // Show comments overlay
         function showComments(videoId) {
-            // Redirect to the comments page with the video_id parameter
-            window.location.href = `comments.php?video_id=${videoId}`;
+            fetch(`fetch_comments.php?video_id=${videoId}`)
+                .then(response => response.text())
+                .then(html => {
+                    document.getElementById('commentsContainer').innerHTML = html;
+                    document.getElementById('commentsOverlay').style.display = 'flex';
+                })
+                .catch(error => {
+                    console.error('Error fetching comments:', error);
+                });
+        }
+
+        // Close comments overlay
+        function closeComments() {
+            document.getElementById('commentsOverlay').style.display = 'none';
+        }
+
+        // Close overlay when clicking outside
+        document.getElementById('commentsOverlay').addEventListener('click', (e) => {
+            if (e.target === document.getElementById('commentsOverlay')) {
+                closeComments();
+            }
+        });
+
+        // Submit a new comment for a video
+        function submitComment(videoId) {
+            const commentText = document.getElementById('newCommentText').value;
+            if (!commentText.trim()) {
+                alert('Comment cannot be empty.');
+                return;
+            }
+
+            fetch('submit_comment.php', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ post_id: videoId, content: commentText, type: 'video' })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        showComments(videoId); // Refresh comments
+                        document.getElementById('newCommentText').value = ''; // Clear input
+                    } else {
+                        alert('Failed to submit comment.');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                });
         }
     </script>
 </body>

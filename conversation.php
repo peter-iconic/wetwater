@@ -175,7 +175,7 @@ if (!$other_user) {
     }
 
     // Load messages every 2 seconds
-    setInterval(loadMessages, 2000);
+    setInterval(loadMessages, 10000);
 
     // Prevent form submission and send message via AJAX
     $('#messageForm').on('submit', function (e) {
