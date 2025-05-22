@@ -46,10 +46,10 @@ $following_count = $stmt->fetch(PDO::FETCH_ASSOC)['following_count'];
 
 <div class="container mt-4">
     <div class="row">
-        <!-- Left Column - Profile Info -->
+        <!-- Left Column -->
         <div class="col-md-4">
-            <div class="card mb-4">
-                <div class="card-body text-center">
+            <div class="card mb-4 text-center">
+                <div class="card-body">
                     <img src="assets/images/<?php echo htmlspecialchars($user['profile_picture']); ?>"
                         class="rounded-circle mb-3" width="150" height="150">
                     <h3><?php echo htmlspecialchars($user['username']); ?></h3>
@@ -77,7 +77,8 @@ $following_count = $stmt->fetch(PDO::FETCH_ASSOC)['following_count'];
                     <?php endif; ?>
 
                     <?php if (isset($_SESSION['user_id']) && $_SESSION['user_id'] == $user_id): ?>
-                        <a href="edit_profile.php" class="btn btn-outline-primary">Edit Profile</a>
+                        <a href="edit_profile.php" class="btn btn-outline-primary mb-2">Edit Profile</a>
+                        <a href="logout.php" class="btn btn-danger">Logout</a>
                     <?php endif; ?>
                 </div>
             </div>
@@ -89,14 +90,14 @@ $following_count = $stmt->fetch(PDO::FETCH_ASSOC)['following_count'];
                         <p><i class="bi bi-geo-alt"></i> <?php echo htmlspecialchars($user['location']); ?></p>
                     <?php endif; ?>
                     <?php if (!empty($user['website'])): ?>
-                        <p><i class="bi bi-link-45deg"></i> <a
-                                href="<?php echo htmlspecialchars($user['website']); ?>">Website</a></p>
+                        <p><i class="bi bi-link-45deg"></i> <a href="<?php echo htmlspecialchars($user['website']); ?>"
+                                target="_blank">Website</a></p>
                     <?php endif; ?>
                 </div>
             </div>
         </div>
 
-        <!-- Right Column - Posts Grid -->
+        <!-- Right Column - Posts -->
         <div class="col-md-8">
             <h2 class="mb-4">Posts</h2>
 
@@ -111,36 +112,27 @@ $following_count = $stmt->fetch(PDO::FETCH_ASSOC)['following_count'];
                                     <img src="<?php echo htmlspecialchars($post['image']); ?>" class="card-img-top"
                                         alt="Post image">
                                 <?php endif; ?>
-
                                 <div class="card-body">
                                     <p class="card-text"><?php echo htmlspecialchars($post['content']); ?></p>
-                                    <small class="text-muted">
-                                        <?php echo date('M j, Y', strtotime($post['created_at'])); ?>
-                                    </small>
+                                    <small
+                                        class="text-muted"><?php echo date('M j, Y', strtotime($post['created_at'])); ?></small>
                                 </div>
-
                                 <div class="card-footer bg-transparent">
                                     <div class="d-flex justify-content-between">
-                                        <!-- Like Button -->
                                         <button class="btn btn-sm btn-outline-primary like-btn"
                                             data-post-id="<?php echo $post['id']; ?>">
                                             ❤️ <span class="like-count"><?php echo $post['like_count']; ?></span>
                                         </button>
-
-                                        <!-- Comment Button -->
                                         <button class="btn btn-sm btn-outline-secondary toggle-comments"
                                             data-post-id="<?php echo $post['id']; ?>">
                                             💬 <span class="comment-count"><?php echo $post['comment_count']; ?></span>
                                         </button>
-
-                                        <!-- Repost Button -->
                                         <button class="btn btn-sm btn-outline-success repost-btn"
                                             data-post-id="<?php echo $post['id']; ?>">
                                             🔄 <span class="repost-count"><?php echo $post['repost_count']; ?></span>
                                         </button>
                                     </div>
 
-                                    <!-- Comments Section -->
                                     <div class="comments-section mt-3" id="comments-<?php echo $post['id']; ?>"
                                         style="display: none;">
                                         <?php
@@ -156,25 +148,19 @@ $following_count = $stmt->fetch(PDO::FETCH_ASSOC)['following_count'];
                                         $comments = $stmt->fetchAll(PDO::FETCH_ASSOC);
                                         ?>
 
-                                        <?php if (!empty($comments)): ?>
-                                            <div class="mt-2">
-                                                <?php foreach ($comments as $comment): ?>
-                                                    <div class="d-flex mb-2">
-                                                        <img src="assets/images/<?php echo htmlspecialchars($comment['profile_picture']); ?>"
-                                                            class="rounded-circle me-2" width="32" height="32">
-                                                        <div>
-                                                            <strong><?php echo htmlspecialchars($comment['username']); ?></strong>
-                                                            <p class="mb-0"><?php echo htmlspecialchars($comment['content']); ?></p>
-                                                            <small class="text-muted">
-                                                                <?php echo date('M j', strtotime($comment['created_at'])); ?>
-                                                            </small>
-                                                        </div>
-                                                    </div>
-                                                <?php endforeach; ?>
+                                        <?php foreach ($comments as $comment): ?>
+                                            <div class="d-flex mb-2">
+                                                <img src="assets/images/<?php echo htmlspecialchars($comment['profile_picture']); ?>"
+                                                    class="rounded-circle me-2" width="32" height="32">
+                                                <div>
+                                                    <strong><?php echo htmlspecialchars($comment['username']); ?></strong>
+                                                    <p class="mb-0"><?php echo htmlspecialchars($comment['content']); ?></p>
+                                                    <small
+                                                        class="text-muted"><?php echo date('M j', strtotime($comment['created_at'])); ?></small>
+                                                </div>
                                             </div>
-                                        <?php endif; ?>
+                                        <?php endforeach; ?>
 
-                                        <!-- Comment Form -->
                                         <form class="comment-form mt-2" data-post-id="<?php echo $post['id']; ?>">
                                             <input type="hidden" name="post_id" value="<?php echo $post['id']; ?>">
                                             <div class="input-group">
@@ -212,8 +198,8 @@ $following_count = $stmt->fetch(PDO::FETCH_ASSOC)['following_count'];
                 ");
                 $stmt->execute([$user_id]);
                 $followers = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-                if (empty($followers)): ?>
+                ?>
+                <?php if (empty($followers)): ?>
                     <p>No followers yet.</p>
                 <?php else: ?>
                     <div class="list-group">
@@ -252,8 +238,8 @@ $following_count = $stmt->fetch(PDO::FETCH_ASSOC)['following_count'];
                 ");
                 $stmt->execute([$user_id]);
                 $following = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-                if (empty($following)): ?>
+                ?>
+                <?php if (empty($following)): ?>
                     <p>Not following anyone yet.</p>
                 <?php else: ?>
                     <div class="list-group">
@@ -275,68 +261,12 @@ $following_count = $stmt->fetch(PDO::FETCH_ASSOC)['following_count'];
 </div>
 
 <script>
-    $(document).ready(function () {
-        // Toggle comments section
-        $('.toggle-comments').on('click', function () {
-            const postId = $(this).data('post-id');
-            $('#comments-' + postId).toggle();
-        });
-
-        // Handle like button click
-        $('.like-btn').on('click', function () {
-            const postId = $(this).data('post-id');
-            const likeCount = $(this).find('.like-count');
-            const currentCount = parseInt(likeCount.text());
-
-            $.ajax({
-                url: 'handle_reaction.php',
-                method: 'POST',
-                data: { post_id: postId, type: 'like' },
-                success: function (response) {
-                    if (response.liked) {
-                        likeCount.text(currentCount + 1);
-                        $(this).removeClass('btn-outline-primary').addClass('btn-primary');
-                    } else {
-                        likeCount.text(currentCount - 1);
-                        $(this).removeClass('btn-primary').addClass('btn-outline-primary');
-                    }
-                }
-            });
-        });
-
-        // Handle comment submission
-        $('.comment-form').on('submit', function (e) {
-            e.preventDefault();
-            const form = $(this);
-            const postId = form.data('post-id');
-            const commentContent = form.find('input[name="content"]');
-            const commentCount = form.closest('.card-footer').find('.comment-count');
-
-            $.ajax({
-                url: 'add_comment.php',
-                method: 'POST',
-                data: form.serialize(),
-                success: function (response) {
-                    if (response.success) {
-                        // Update comment count
-                        commentCount.text(parseInt(commentCount.text()) + 1);
-
-                        // Clear the input
-                        commentContent.val('');
-
-                        // Reload comments section
-                        $('#comments-' + postId + ' > div:first').load(' #comments-' + postId + ' > div:first > *');
-                    }
-                }
-            });
-        });
-
-        // Load followers/following modals
-        $('[data-bs-toggle="modal"]').on('click', function () {
-            const modalId = $(this).data('bs-target');
-            $(modalId).modal('show');
+    // jQuery-based toggling of comments section
+    document.querySelectorAll('.toggle-comments').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const postId = btn.dataset.postId;
+            const section = document.getElementById('comments-' + postId);
+            section.style.display = (section.style.display === 'none') ? 'block' : 'none';
         });
     });
 </script>
-
-<?php include 'includes/footer.php'; ?>
