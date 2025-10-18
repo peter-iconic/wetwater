@@ -76,4 +76,10 @@ if (!isset($_SESSION['user_id'])) {
             contentTextarea.value += emoji;
         }
     });
+<<<<<<< HEAD
 </script>
+=======
+</script>
+
+<?php include 'includes/footer.php'; ?>
+>>>>>>> origin/master

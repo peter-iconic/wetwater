@@ -5,7 +5,7 @@
 $host = 'localhost'; // Replace with your database host
 $dbname = 'school_social_app'; // Replace with your database name
 $username = 'root'; // Replace with your database username
-$password = ''; // Replace with your database password
+$password = 'Mukomapeter1$'; // Replace with your database password
 
 // Create a PDO connection
 try {
