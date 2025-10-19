@@ -1,621 +1,582 @@
 <?php
-// Include the header
-include 'includes/header.php';
-
-
-// Include the database connection
+session_start();
 include 'config/db.php';
 
+// Check if user is logged in
+$is_logged_in = isset($_SESSION['user_id']);
+$user_id = $is_logged_in ? $_SESSION['user_id'] : null;
 
+// Algorithm to get personalized feed
+function getPersonalizedFeed($pdo, $user_id = null, $page = 1, $limit = 10)
+{
+    $offset = ($page - 1) * $limit;
 
-// Redirect if the user is not logged in
-if (!isset($_SESSION['user_id'])) {
-    header("Location: login.php");
-    exit();
-}
+    // Convert limit and offset to integers for binding
+    $limit = (int) $limit;
+    $offset = (int) $offset;
 
-// Handle reposts
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['repost'])) {
-    $post_id = $_POST['post_id'];
-    $user_id = $_SESSION['user_id'];
+    if ($user_id) {
+        // For logged-in users: Personalized feed with advanced algorithm
+        $query = "
+            SELECT 
+                p.*,
+                u.username,
+                u.profile_picture,
+                (SELECT COUNT(*) FROM reactions WHERE post_id = p.id AND type = 'like') AS likes,
+                (SELECT COUNT(*) FROM reactions WHERE post_id = p.id AND type = 'dislike') AS dislikes,
+                (SELECT COUNT(*) FROM comments WHERE post_id = p.id) AS comments,
+                (SELECT COUNT(*) FROM posts AS reposts WHERE reposts.original_post_id = p.id) AS reposts,
+                COALESCE(cs.total_score, 50) as content_score,
+                EXISTS(SELECT 1 FROM reactions WHERE post_id = p.id AND user_id = ? AND type = 'like') as user_liked,
+                EXISTS(SELECT 1 FROM reactions WHERE post_id = p.id AND user_id = ? AND type = 'dislike') as user_disliked
+            FROM posts p
+            JOIN users u ON p.user_id = u.id
+            LEFT JOIN content_scores cs ON cs.post_id = p.id
+            WHERE p.original_post_id IS NULL
+            ORDER BY 
+                CASE 
+                    WHEN EXISTS(SELECT 1 FROM followers WHERE follower_id = ? AND following_id = p.user_id) THEN 1000
+                    ELSE COALESCE(cs.total_score, 50) 
+                END DESC,
+                ((SELECT COUNT(*) FROM reactions WHERE post_id = p.id AND type = 'like') * 2 + 
+                 (SELECT COUNT(*) FROM comments WHERE post_id = p.id) * 3 + 
+                 (SELECT COUNT(*) FROM posts AS reposts WHERE reposts.original_post_id = p.id) * 4) DESC,
+                p.created_at DESC
+            LIMIT ?
+            OFFSET ?
+        ";
 
-    // Fetch the original post
-    $stmt = $pdo->prepare("SELECT * FROM posts WHERE id = ?");
-    $stmt->execute([$post_id]);
-    $original_post = $stmt->fetch(PDO::FETCH_ASSOC);
-
-    // Create a repost
-    $stmt = $pdo->prepare("INSERT INTO posts (user_id, content, original_post_id, created_at) VALUES (?, ?, ?, NOW())");
-    $stmt->execute([$user_id, "Reposted", $post_id]);
-
-    // Notification for the original poster
-    $stmt = $pdo->prepare("SELECT username FROM users WHERE id = ?");
-    $stmt->execute([$user_id]);
-    $username = $stmt->fetch(PDO::FETCH_ASSOC)['username'];
-
-    $message = "$username reposted your post";
-    $stmt = $pdo->prepare("INSERT INTO notifications (user_id, message, is_read, created_at) VALUES (?, ?, 0, NOW())");
-    $stmt->execute([$original_post['user_id'], $message]);
-
-    header("Location: index.php");
-    exit();
-}
-
-// Handle reactions via AJAX
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_react'])) {
-    $post_id = $_POST['post_id'];
-    $type = $_POST['type'];
-    $user_id = $_SESSION['user_id'];
-
-    // Check if user already reacted
-    $stmt = $pdo->prepare("SELECT id, type FROM reactions WHERE post_id = ? AND user_id = ?");
-    $stmt->execute([$post_id, $user_id]);
-    $existing_reaction = $stmt->fetch(PDO::FETCH_ASSOC);
-
-    if ($existing_reaction) {
-        if ($existing_reaction['type'] === $type) {
-            // Remove reaction
-            $stmt = $pdo->prepare("DELETE FROM reactions WHERE id = ?");
-            $stmt->execute([$existing_reaction['id']]);
-        } else {
-            // Update reaction
-            $stmt = $pdo->prepare("UPDATE reactions SET type = ? WHERE id = ?");
-            $stmt->execute([$type, $existing_reaction['id']]);
-        }
+        $stmt = $pdo->prepare($query);
+        $stmt->bindValue(1, $user_id, PDO::PARAM_INT);
+        $stmt->bindValue(2, $user_id, PDO::PARAM_INT);
+        $stmt->bindValue(3, $user_id, PDO::PARAM_INT);
+        $stmt->bindValue(4, $limit, PDO::PARAM_INT);
+        $stmt->bindValue(5, $offset, PDO::PARAM_INT);
+        $stmt->execute();
     } else {
-        // Insert new reaction
-        $stmt = $pdo->prepare("INSERT INTO reactions (post_id, user_id, type) VALUES (?, ?, ?)");
-        $stmt->execute([$post_id, $user_id, $type]);
+        // For non-logged-in users: Trending content
+        $query = "
+            SELECT 
+                p.*,
+                u.username,
+                u.profile_picture,
+                (SELECT COUNT(*) FROM reactions WHERE post_id = p.id AND type = 'like') AS likes,
+                (SELECT COUNT(*) FROM reactions WHERE post_id = p.id AND type = 'dislike') AS dislikes,
+                (SELECT COUNT(*) FROM comments WHERE post_id = p.id) AS comments,
+                (SELECT COUNT(*) FROM posts AS reposts WHERE reposts.original_post_id = p.id) AS reposts,
+                COALESCE(cs.total_score, 50) as content_score,
+                0 as user_liked,
+                0 as user_disliked
+            FROM posts p
+            JOIN users u ON p.user_id = u.id
+            LEFT JOIN content_scores cs ON cs.post_id = p.id
+            WHERE p.original_post_id IS NULL
+            ORDER BY 
+                ((SELECT COUNT(*) FROM reactions WHERE post_id = p.id AND type = 'like') * 2 + 
+                 (SELECT COUNT(*) FROM comments WHERE post_id = p.id) * 3 + 
+                 (SELECT COUNT(*) FROM posts AS reposts WHERE reposts.original_post_id = p.id) * 4) DESC,
+                COALESCE(cs.total_score, 50) DESC,
+                p.created_at DESC
+            LIMIT ?
+            OFFSET ?
+        ";
+
+        $stmt = $pdo->prepare($query);
+        $stmt->bindValue(1, $limit, PDO::PARAM_INT);
+        $stmt->bindValue(2, $offset, PDO::PARAM_INT);
+        $stmt->execute();
     }
 
-    // Get updated counts
-    $stmt = $pdo->prepare("SELECT COUNT(*) as like_count FROM reactions WHERE post_id = ? AND type = 'like'");
-    $stmt->execute([$post_id]);
-    $like_count = $stmt->fetch(PDO::FETCH_ASSOC)['like_count'];
-
-    $stmt = $pdo->prepare("SELECT COUNT(*) as dislike_count FROM reactions WHERE post_id = ? AND type = 'dislike'");
-    $stmt->execute([$post_id]);
-    $dislike_count = $stmt->fetch(PDO::FETCH_ASSOC)['dislike_count'];
-
-    // Check if user reacted
-    $stmt = $pdo->prepare("SELECT type FROM reactions WHERE post_id = ? AND user_id = ?");
-    $stmt->execute([$post_id, $user_id]);
-    $user_reaction = $stmt->fetch(PDO::FETCH_ASSOC);
-
-    // Send response
-    header('Content-Type: application/json');
-    echo json_encode([
-        'like_count' => $like_count,
-        'dislike_count' => $dislike_count,
-        'user_reaction' => $user_reaction ? $user_reaction['type'] : null
-    ]);
-    exit();
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
-// Handle comments
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['comment'])) {
-    $post_id = $_POST['post_id'];
-    $content = $_POST['content'];
-    $user_id = $_SESSION['user_id'];
+// Get current page
+$page = isset($_GET['page']) ? max(1, intval($_GET['page'])) : 1;
+$posts = getPersonalizedFeed($pdo, $user_id, $page, 10);
 
-    // Fetch the username of the user who commented
-    $stmt = $pdo->prepare("SELECT username FROM users WHERE id = ?");
-    $stmt->execute([$user_id]);
-    $username = $stmt->fetch(PDO::FETCH_ASSOC)['username'];
-
-    // Insert comment
-    $stmt = $pdo->prepare("INSERT INTO comments (post_id, user_id, content) VALUES (?, ?, ?)");
-    $stmt->execute([$post_id, $user_id, $content]);
-
-    // Fetch post owner
-    $stmt = $pdo->prepare("SELECT user_id FROM posts WHERE id = ?");
-    $stmt->execute([$post_id]);
-    $post_owner = $stmt->fetch(PDO::FETCH_ASSOC)['user_id'];
-
-    // Insert notification for the post owner
-    $message = "$username commented on your post: " . substr($content, 0, 50) . "...";
-    $stmt = $pdo->prepare("INSERT INTO notifications (user_id, message, is_read, created_at) VALUES (?, ?, 0, NOW())");
-    $stmt->execute([$post_owner, $message]);
+// Track view for recommendation algorithm
+if ($user_id && !empty($posts)) {
+    foreach ($posts as $post) {
+        $stmt = $pdo->prepare("INSERT INTO user_behavior (user_id, action_type, target_id, target_type) VALUES (?, 'view', ?, 'post')");
+        $stmt->execute([$user_id, $post['id']]);
+    }
 }
 
-// Handle replies
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['reply'])) {
-    $post_id = $_POST['post_id'];
-    $comment_id = $_POST['parent_comment_id'];
-    $content = $_POST['content'];
-    $user_id = $_SESSION['user_id'];
+// Helper function to format time
+function time_elapsed_string($datetime, $full = false)
+{
+    $now = new DateTime;
+    $ago = new DateTime($datetime);
+    $diff = $now->diff($ago);
 
-    // Fetch the username of the user who replied
-    $stmt = $pdo->prepare("SELECT username FROM users WHERE id = ?");
-    $stmt->execute([$user_id]);
-    $username = $stmt->fetch(PDO::FETCH_ASSOC)['username'];
+    $diff->w = floor($diff->d / 7);
+    $diff->d -= $diff->w * 7;
 
-    // Insert reply
-    $stmt = $pdo->prepare("INSERT INTO comments (post_id, user_id, content, parent_comment_id) VALUES (?, ?, ?, ?)");
-    $stmt->execute([$post_id, $user_id, $content, $comment_id]);
+    $string = array(
+        'y' => 'year',
+        'm' => 'month',
+        'w' => 'week',
+        'd' => 'day',
+        'h' => 'hour',
+        'i' => 'minute',
+        's' => 'second',
+    );
 
-    // Fetch comment owner
-    $stmt = $pdo->prepare("SELECT user_id FROM comments WHERE id = ?");
-    $stmt->execute([$comment_id]);
-    $comment_owner = $stmt->fetch(PDO::FETCH_ASSOC)['user_id'];
+    foreach ($string as $k => &$v) {
+        if ($diff->$k) {
+            $v = $diff->$k . ' ' . $v . ($diff->$k > 1 ? 's' : '');
+        } else {
+            unset($string[$k]);
+        }
+    }
 
-    // Insert notification for the comment owner
-    $message = "$username replied to your comment: " . substr($content, 0, 50) . "...";
-    $stmt = $pdo->prepare("INSERT INTO notifications (user_id, message, is_read, created_at) VALUES (?, ?, 0, NOW())");
-    $stmt->execute([$comment_owner, $message]);
+    if (!$full)
+        $string = array_slice($string, 0, 1);
+    return $string ? implode(', ', $string) . ' ago' : 'just now';
 }
-
-// Fetch all posts from the database with additional counts
-$stmt = $pdo->query("
-    SELECT 
-        posts.*, 
-        users.username,
-        (SELECT COUNT(*) FROM posts AS reposts WHERE reposts.original_post_id = posts.id) AS repost_count,
-        (SELECT COUNT(*) FROM comments WHERE comments.post_id = posts.id) AS comment_count
-    FROM posts 
-    JOIN users ON posts.user_id = users.id 
-    ORDER BY posts.created_at DESC
-");
-$posts = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-// Fetch approved ads within their scheduled time
-$current_time = date('Y-m-d H:i:s');
-$stmt = $pdo->prepare("SELECT * FROM ads WHERE status = 'approved' AND start_time <= ? AND end_time >= ? ORDER BY created_at DESC LIMIT 1");
-$stmt->execute([$current_time, $current_time]);
-$ad = $stmt->fetch(PDO::FETCH_ASSOC);
-
-
 ?>
 
+<!DOCTYPE html>
+<html lang="en">
 
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Spark - Your Personalized Feed</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="inddex.css">
+</head>
 
+<body>
+    <?php include 'includes/header.php'; ?>
 
-
-
-<!-- Center Content -->
-<div class="col-md-6" style="padding-top: 40px; padding-bottom: 55px;">
-
-
-    <!-- Display Approved Ad -->
-    <?php if ($ad): ?>
-        <?php
-        // Track impression
-        $stmt = $pdo->prepare("INSERT INTO ad_analytics (ad_id, type) VALUES (?, 'impression')");
-        $stmt->execute([$ad['id']]);
-
-        // Fetch the pricing plan
-        $stmt = $pdo->prepare("SELECT * FROM pricing_plans WHERE id = ?");
-        $stmt->execute([$ad['pricing_plan_id']]);
-        $plan = $stmt->fetch(PDO::FETCH_ASSOC);
-
-        if ($plan && $plan['type'] === 'impression') {
-            // Calculate cost for this impression
-            $cost = $plan['rate'];
-
-            // Insert billing record
-            $stmt = $pdo->prepare("INSERT INTO ad_billing (ad_id, user_id, amount) VALUES (?, ?, ?)");
-            $stmt->execute([$ad['id'], $ad['user_id'], $cost]);
-        }
-        ?>
-        <div class="card mb-3">
-            <div class="card-body">
-                <h5 class="card-title"><?php echo htmlspecialchars($ad['title']); ?></h5>
-                <?php if ($ad['image']): ?>
-                    <div class="text-center mb-3"> <!-- Center the ad image -->
-                        <img src="<?php echo $ad['image']; ?>" alt="Ad Image" class="img-fluid rounded"
-                            style="max-width: 100%; height: auto;">
-                    </div>
-                <?php endif; ?>
-                <p class="card-text"><?php echo htmlspecialchars($ad['description']); ?></p>
-                <a href="track_click.php?ad_id=<?php echo $ad['id']; ?>&redirect=<?php echo urlencode($ad['link']); ?>"
-                    class="btn btn-primary" target="_blank">Learn More</a>
-            </div>
+    <!-- Swipe Hint -->
+    <?php if ($page == 1): ?>
+        <div class="swipe-hint d-md-none">
+            <i class="bi bi-arrow-up"></i> Swipe up for more content
         </div>
     <?php endif; ?>
 
-    <!-- Display Posts -->
-    <div id="post-feed">
-        <?php if (empty($posts)): ?>
-            <p class="text-center">No posts yet. Be the first to share!</p>
-        <?php else: ?>
-            <?php foreach ($posts as $index => $post): ?>
-                <div class="card mb-3" id="post-<?php echo $post['id']; ?>">
-                    <div class="card-body">
-                        <!-- Shared Post Indicator -->
-                        <?php if (!empty($post['original_post_id'])): ?>
-                            <div class="text-muted mb-2">
-                                <small>Reposted by <?php echo htmlspecialchars($post['username']); ?></small>
-                            </div>
-                            <?php
-                            // Fetch the original post
-                            $stmt = $pdo->prepare("SELECT posts.*, users.username FROM posts JOIN users ON posts.user_id = users.id WHERE posts.id = ?");
-                            $stmt->execute([$post['original_post_id']]);
-                            $original_post = $stmt->fetch(PDO::FETCH_ASSOC);
-                            ?>
-                            <div class="card mb-2">
-                                <div class="card-body">
-                                    <h6 class="card-subtitle mb-2 text-muted">
-                                        Original post by <a href="profile.php?id=<?php echo $original_post['user_id']; ?>">
-                                            <?php echo htmlspecialchars($original_post['username']); ?>
-                                        </a>
-                                    </h6>
-                                    <p class="card-text"><?php echo htmlspecialchars($original_post['content']); ?></p>
-                                    <?php if (!empty($original_post['image'])): ?>
-                                        <div class="text-center mb-3">
-                                            <img src="<?php echo $original_post['image']; ?>" alt="Original Post Image"
-                                                class="img-fluid rounded" style="max-width: 100%; height: auto;">
-                                        </div>
+    <!-- Floating Action Button -->
+    <?php if ($is_logged_in): ?>
+        <button class="floating-action-btn" onclick="openCreateModal()">
+            <i class="bi bi-plus-lg"></i>
+        </button>
+    <?php else: ?>
+        <a href="login.php" class="floating-action-btn"
+            style="text-decoration: none; display: flex; align-items: center; justify-content: center;">
+            <i class="bi bi-plus-lg"></i>
+        </a>
+    <?php endif; ?>
+
+    <div class="feed-container">
+        <!-- Stories Carousel -->
+        <div class="story-carousel">
+            <div class="d-flex overflow-auto" style="scrollbar-width: none;">
+                <?php
+                // Fetch active stories
+                $stmt = $pdo->prepare("
+                    SELECT s.*, u.username, u.profile_picture 
+                    FROM stories s 
+                    JOIN users u ON s.user_id = u.id 
+                    WHERE s.expires_at > NOW() 
+                    ORDER BY s.created_at DESC 
+                    LIMIT 10
+                ");
+                $stmt->execute();
+                $stories = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+                if (!empty($stories)) {
+                    foreach ($stories as $story):
+                        ?>
+                        <div class="story-item" onclick="viewStory(<?php echo $story['id']; ?>)">
+                            <img src="<?php echo htmlspecialchars($story['media_url']); ?>" class="story-avatar"
+                                alt="<?php echo htmlspecialchars($story['username']); ?>">
+                            <div class="story-username"><?php echo htmlspecialchars($story['username']); ?></div>
+                        </div>
+                    <?php endforeach;
+                } else {
+                    echo '<div class="text-center text-muted w-100">No active stories</div>';
+                }
+                ?>
+            </div>
+        </div>
+
+        <!-- Feed Items -->
+        <div id="feed-items">
+            <?php if (empty($posts)): ?>
+                <div class="login-prompt">
+                    <h4>Welcome to Spark! 🔥</h4>
+                    <p>Connect with friends and discover amazing content.</p>
+                    <?php if (!$is_logged_in): ?>
+                        <a href="login.php" class="btn btn-primary">Login to Get Started</a>
+                        <a href="register.php" class="btn btn-outline-light ms-2">Sign Up</a>
+                    <?php else: ?>
+                        <p class="text-muted">No posts yet. Be the first to share!</p>
+                        <a href="create_post.php" class="btn btn-primary">Create Your First Post</a>
+                    <?php endif; ?>
+                </div>
+            <?php else: ?>
+                <?php foreach ($posts as $post): ?>
+                    <div class="feed-item" data-post-id="<?php echo $post['id']; ?>">
+                        <!-- Post Header -->
+                        <div class="post-header">
+                            <img src="<?php echo htmlspecialchars($post['profile_picture']); ?>" class="user-avatar"
+                                alt="<?php echo htmlspecialchars($post['username']); ?>"
+                                onerror="this.src='default_profile.jpg'">
+                            <div class="user-info">
+                                <a href="profile.php?id=<?php echo $post['user_id']; ?>" class="username">
+                                    <?php echo htmlspecialchars($post['username']); ?>
+                                    <?php if ($post['content_score'] > 80): ?>
+                                        <span class="trending-badge">TRENDING</span>
                                     <?php endif; ?>
+                                </a>
+                                <div class="post-time">
+                                    <?php echo time_elapsed_string($post['created_at']); ?>
                                 </div>
                             </div>
-                        <?php endif; ?>
+                            <button class="btn btn-sm btn-outline-secondary">
+                                <i class="bi bi-three-dots"></i>
+                            </button>
+                        </div>
 
-                        <!-- Post content -->
-                        <h5 class="card-title">
-                            <a href="profile.php?id=<?php echo $post['user_id']; ?>">
-                                <?php echo htmlspecialchars($post['username']); ?>
-                            </a>
-                        </h5>
-                        <p class="card-text"><?php echo htmlspecialchars($post['content']); ?></p>
-                        <?php if (!empty($post['caption'])): ?>
-                            <div class="text-muted mb-3">
-                                <small>Caption: <?php echo htmlspecialchars($post['caption']); ?></small>
-                            </div>
-                        <?php endif; ?>
-                        <?php if (!empty($post['image'])): ?>
-                            <div class="text-center mb-3"> <!-- Center the image -->
-                                <img src="<?php echo $post['image']; ?>" alt="Post Image" class="img-fluid rounded"
-                                    style="max-width: 100%; height: auto;">
-                            </div>
-                        <?php endif; ?>
-                        <small class="text-muted">Posted on: <?php echo $post['created_at']; ?></small>
+                        <!-- Post Content -->
+                        <div class="post-content">
+                            <?php if (!empty($post['image'])): ?>
+                                <img src="<?php echo htmlspecialchars($post['image']); ?>" class="post-image" alt="Post image"
+                                    onclick="toggleImageSize(this)" onerror="this.style.display='none'">
+                            <?php endif; ?>
 
-                        <!-- Reactions and Counts -->
-                        <div class="mt-3 d-flex align-items-center">
-                            <?php
-                            // Fetch reactions for this post
-                            $stmt = $pdo->prepare("SELECT COUNT(*) as like_count FROM reactions WHERE post_id = ? AND type = 'like'");
-                            $stmt->execute([$post['id']]);
-                            $like_count = $stmt->fetch(PDO::FETCH_ASSOC)['like_count'];
+                            <?php if (!empty($post['content'])): ?>
+                                <div class="post-text">
+                                    <?php echo nl2br(htmlspecialchars($post['content'])); ?>
+                                </div>
+                            <?php endif; ?>
 
-                            $stmt = $pdo->prepare("SELECT COUNT(*) as dislike_count FROM reactions WHERE post_id = ? AND type = 'dislike'");
-                            $stmt->execute([$post['id']]);
-                            $dislike_count = $stmt->fetch(PDO::FETCH_ASSOC)['dislike_count'];
+                            <?php if (!empty($post['caption'])): ?>
+                                <div class="post-text text-muted">
+                                    <small><?php echo nl2br(htmlspecialchars($post['caption'])); ?></small>
+                                </div>
+                            <?php endif; ?>
+                        </div>
 
-                            // Check if current user has reacted
-                            $user_reaction = null;
-                            if (isset($_SESSION['user_id'])) {
-                                $stmt = $pdo->prepare("SELECT type FROM reactions WHERE post_id = ? AND user_id = ?");
-                                $stmt->execute([$post['id'], $_SESSION['user_id']]);
-                                $user_reaction = $stmt->fetch(PDO::FETCH_ASSOC);
-                            }
-                            ?>
+                        <!-- Post Stats -->
+                        <div class="stats">
+                            <span class="me-3">
+                                <i class="bi bi-heart-fill text-danger"></i> <?php echo $post['likes']; ?>
+                            </span>
+                            <span class="me-3">
+                                <i class="bi bi-chat"></i> <?php echo $post['comments']; ?>
+                            </span>
+                            <span>
+                                <i class="bi bi-share"></i> <?php echo $post['reposts']; ?>
+                            </span>
+                        </div>
 
-
-
-                            <!-- Like Button -->
-                            <button class="btn btn-sm btn-outline-primary like-btn me-2"
-                                data-post-id="<?php echo $post['id']; ?>" data-type="like" <?php if ($user_reaction && $user_reaction['type'] === 'like')
-                                       echo 'style="background-color: #0d6efd; color: white;"'; ?>>
-                                ❤️ <span class="like-count"><?php echo $like_count; ?></span>
+                        <!-- Post Actions -->
+                        <div class="post-actions">
+                            <button class="action-btn like-btn <?php echo $post['user_liked'] ? 'liked' : ''; ?>"
+                                onclick="reactToPost(<?php echo $post['id']; ?>, 'like')" <?php echo !$is_logged_in ? 'disabled' : ''; ?>>
+                                <i class="bi bi-heart<?php echo $post['user_liked'] ? '-fill' : ''; ?>"></i>
+                                <span>Like</span>
                             </button>
 
-                            <!-- Dislike Button -->
-                            <button class="btn btn-sm btn-outline-danger dislike-btn me-2"
-                                data-post-id="<?php echo $post['id']; ?>" data-type="dislike" <?php if ($user_reaction && $user_reaction['type'] === 'dislike')
-                                       echo 'style="background-color: #dc3545; color: white;"'; ?>>
-                                💔 <span class="dislike-count"><?php echo $dislike_count; ?></span>
+                            <button class="action-btn" onclick="toggleComments(<?php echo $post['id']; ?>)" <?php echo !$is_logged_in ? 'disabled' : ''; ?>>
+                                <i class="bi bi-chat"></i>
+                                <span>Comment</span>
                             </button>
 
-                            <!-- Repost Button with Count -->
-                            <form action="" method="POST" style="display: inline;" class="me-2">
-                                <input type="hidden" name="post_id" value="<?php echo $post['id']; ?>">
-                                <button type="submit" name="repost" class="btn btn-sm btn-outline-secondary">
-                                    🔄 <span class="repost-count"><?php echo $post['repost_count']; ?></span>
-                                </button>
-                            </form>
+                            <button class="action-btn" onclick="sharePost(<?php echo $post['id']; ?>)" <?php echo !$is_logged_in ? 'disabled' : ''; ?>>
+                                <i class="bi bi-share"></i>
+                                <span>Share</span>
+                            </button>
 
-                            <!-- Comment Toggle Button with Count -->
-                            <button class="btn btn-sm btn-outline-info toggle-comments"
-                                data-post-id="<?php echo $post['id']; ?>">
-                                💬 <span class="comment-count"><?php echo $post['comment_count']; ?></span>
+                            <button class="action-btn" onclick="savePost(<?php echo $post['id']; ?>)" <?php echo !$is_logged_in ? 'disabled' : ''; ?>>
+                                <i class="bi bi-bookmark"></i>
+                                <span>Save</span>
                             </button>
                         </div>
 
                         <!-- Comments Section (Initially Hidden) -->
-                        <div class="comments-section mt-3" id="comments-<?php echo $post['id']; ?>" style="display: none;">
-                            <h6>Comments:</h6>
-                            <?php
-                            // Fetch top-level comments (no parent_comment_id)
-                            $stmt = $pdo->prepare("SELECT comments.*, users.username FROM comments JOIN users ON comments.user_id = users.id WHERE comments.post_id = ? AND comments.parent_comment_id IS NULL ORDER BY comments.created_at ASC LIMIT 3");
-                            $stmt->execute([$post['id']]);
-                            $comments = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-                            if (empty($comments)): ?>
-                                <p class="text-muted">No comments yet.</p>
-                            <?php else: ?>
-                                <?php foreach ($comments as $comment): ?>
-                                    <div class="card mb-2">
-                                        <div class="card-body">
-                                            <h6 class="card-subtitle mb-2 text-muted">
-                                                <a href="profile.php?id=<?php echo $comment['user_id']; ?>">
-                                                    <?php echo htmlspecialchars($comment['username']); ?>
-                                                </a>
-                                                <small><?php echo $comment['created_at']; ?></small>
-                                            </h6>
-                                            <p class="card-text"><?php echo htmlspecialchars($comment['content']); ?></p>
-
-                                            <!-- Replies to this comment -->
-                                            <?php
-                                            // Fetch replies for this comment
-                                            $stmt = $pdo->prepare("SELECT comments.*, users.username FROM comments JOIN users ON comments.user_id = users.id WHERE comments.parent_comment_id = ? ORDER BY comments.created_at ASC");
-                                            $stmt->execute([$comment['id']]);
-                                            $replies = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-                                            if (!empty($replies)): ?>
-                                                <div class="ms-4 mt-2">
-                                                    <h6>Replies:</h6>
-                                                    <?php foreach ($replies as $reply): ?>
-                                                        <div class="card mb-2">
-                                                            <div class="card-body">
-                                                                <h6 class="card-subtitle mb-2 text-muted">
-                                                                    <a href="profile.php?id=<?php echo $reply['user_id']; ?>">
-                                                                        <?php echo htmlspecialchars($reply['username']); ?>
-                                                                    </a>
-                                                                    <small><?php echo $reply['created_at']; ?></small>
-                                                                </h6>
-                                                                <p class="card-text"><?php echo htmlspecialchars($reply['content']); ?>
-                                                                </p>
-                                                            </div>
-                                                        </div>
-                                                    <?php endforeach; ?>
-                                                </div>
-                                            <?php endif; ?>
-
-                                            <!-- Reply Form for this comment -->
-                                            <form action="" method="POST" class="mt-2">
-                                                <input type="hidden" name="post_id" value="<?php echo $post['id']; ?>">
-                                                <input type="hidden" name="parent_comment_id" value="<?php echo $comment['id']; ?>">
-                                                <div class="input-group">
-                                                    <textarea name="content" class="form-control" placeholder="Write a reply..."
-                                                        required></textarea>
-                                                    <button type="submit" name="reply" class="btn btn-primary">Reply</button>
-                                                </div>
-                                            </form>
-                                        </div>
-                                    </div>
-                                <?php endforeach; ?>
-
-                                <!-- View More Comments Button -->
-                                <div class="text-center mt-3">
-                                    <button class="btn btn-sm btn-outline-primary view-more-comments"
-                                        data-post-id="<?php echo $post['id']; ?>">
-                                        View More Comments
-                                    </button>
-                                </div>
-                            <?php endif; ?>
-
-                            <!-- Comment Form -->
-                            <form action="" method="POST" class="mt-3">
-                                <input type="hidden" name="post_id" value="<?php echo $post['id']; ?>">
-                                <div class="input-group">
-                                    <textarea name="content" class="form-control" placeholder="Write a comment..."
-                                        required></textarea>
-                                    <button type="submit" name="comment" class="btn btn-primary">Comment</button>
-                                </div>
-                            </form>
+                        <div class="comments-section" id="comments-<?php echo $post['id']; ?>" style="display: none;">
+                            <!-- Comments will be loaded via AJAX -->
                         </div>
                     </div>
-                </div>
+                <?php endforeach; ?>
+            <?php endif; ?>
+        </div>
 
-                <!-- Display an ad after every 3 posts -->
-                <?php if (($index + 1) % 3 === 0): ?>
-                    <?php
-                    // Fetch another approved ad within its scheduled time
-                    $stmt = $pdo->prepare("SELECT * FROM ads WHERE status = 'approved' AND start_time <= ? AND end_time >= ? ORDER BY created_at DESC LIMIT 1");
-                    $stmt->execute([$current_time, $current_time]);
-                    $ad = $stmt->fetch(PDO::FETCH_ASSOC);
-                    ?>
-                    <?php if ($ad): ?>
-                        <?php
-                        // Track impression
-                        $stmt = $pdo->prepare("INSERT INTO ad_analytics (ad_id, type) VALUES (?, 'impression')");
-                        $stmt->execute([$ad['id']]);
-
-                        // Fetch the pricing plan
-                        $stmt = $pdo->prepare("SELECT * FROM pricing_plans WHERE id = ?");
-                        $stmt->execute([$ad['pricing_plan_id']]);
-                        $plan = $stmt->fetch(PDO::FETCH_ASSOC);
-
-                        if ($plan && $plan['type'] === 'impression') {
-                            // Calculate cost for this impression
-                            $cost = $plan['rate'];
-
-                            // Insert billing record
-                            $stmt = $pdo->prepare("INSERT INTO ad_billing (ad_id, user_id, amount) VALUES (?, ?, ?)");
-                            $stmt->execute([$ad['id'], $ad['user_id'], $cost]);
-                        }
-                        ?>
-                        <div class="card mb-3">
-                            <div class="card-body">
-                                <h5 class="card-title"><?php echo htmlspecialchars($ad['title']); ?></h5>
-                                <?php if ($ad['image']): ?>
-                                    <div class="text-center mb-3"> <!-- Center the ad image -->
-                                        <img src="<?php echo $ad['image']; ?>" alt="Ad Image" class="img-fluid rounded"
-                                            style="max-width: 100%; height: auto;">
-                                    </div>
-                                <?php endif; ?>
-                                <p class="card-text"><?php echo htmlspecialchars($ad['description']); ?></p>
-                                <a href="track_click.php?ad_id=<?php echo $ad['id']; ?>&redirect=<?php echo urlencode($ad['link']); ?>"
-                                    class="btn btn-primary" target="_blank">Learn More</a>
-                            </div>
-                        </div>
-                    <?php endif; ?>
-                <?php endif; ?>
-            <?php endforeach; ?>
-        <?php endif; ?>
+        <!-- Infinite Scroll Loader -->
+        <div id="infinite-scroll-loader" class="infinite-scroll-loader" style="display: none;">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+        </div>
     </div>
-</div>
 
+    <!-- JavaScript -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script>
+        let currentPage = <?php echo $page; ?>;
+        let isLoading = false;
+        let hasMore = true;
 
+        // Infinite Scroll
+        $(window).scroll(function () {
+            if ($(window).scrollTop() + $(window).height() >= $(document).height() - 100) {
+                loadMorePosts();
+            }
+        });
 
+        function loadMorePosts() {
+            if (isLoading || !hasMore) return;
 
+            isLoading = true;
+            currentPage++;
 
-<!-- Include jQuery and custom JavaScript -->
-<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-<script>
-    $(document).ready(function () {
-        // Handle reactions with AJAX
-        $('.like-btn, .dislike-btn').on('click', function () {
-            const post_id = $(this).data('post-id');
-            const type = $(this).data('type');
-            const button = $(this);
-            const postContainer = button.closest('.card-body');
+            $('#infinite-scroll-loader').show();
 
             $.ajax({
-                url: 'index.php',
-                method: 'POST',
-                data: {
-                    ajax_react: 1,
-                    post_id: post_id,
-                    type: type
-                },
-                dataType: 'json',
+                url: 'load_posts.php',
+                method: 'GET',
+                data: { page: currentPage },
                 success: function (response) {
-                    // Update like and dislike counts
-                    postContainer.find('.like-count').text(response.like_count);
-                    postContainer.find('.dislike-count').text(response.dislike_count);
-
-                    // Update button styles based on user reaction
-                    const likeBtn = postContainer.find('.like-btn');
-                    const dislikeBtn = postContainer.find('.dislike-btn');
-
-                    // Reset both buttons
-                    likeBtn.css({ 'background-color': '', 'color': '' });
-                    dislikeBtn.css({ 'background-color': '', 'color': '' });
-
-                    // Style the active button if user reacted
-                    if (response.user_reaction === 'like') {
-                        likeBtn.css({ 'background-color': '#0d6efd', 'color': 'white' });
-                    } else if (response.user_reaction === 'dislike') {
-                        dislikeBtn.css({ 'background-color': '#dc3545', 'color': 'white' });
+                    if (response.posts && response.posts.length > 0) {
+                        $('#feed-items').append(response.html);
+                        hasMore = response.hasMore;
+                    } else {
+                        hasMore = false;
+                        $('#infinite-scroll-loader').html('<p class="text-muted">No more posts to load</p>');
                     }
                 },
-                error: function (xhr, status, error) {
-                    console.error('Error reacting to post:', error);
-                    showToast('Error reacting to post. Please try again.', 'error');
-                }
-            });
-        });
-
-        // Toggle comments section
-        $('.toggle-comments').on('click', function () {
-            const post_id = $(this).data('post-id');
-            const commentsSection = $('#comments-' + post_id);
-            commentsSection.toggle();
-
-            // Change icon based on visibility
-            const icon = $(this).find('i');
-            if (commentsSection.is(':visible')) {
-                $(this).html('<i class="bi bi-chat-left-text-fill"></i> <span class="comment-count">' + $(this).find('.comment-count').text() + '</span>');
-            } else {
-                $(this).html('<i class="bi bi-chat-left"></i> <span class="comment-count">' + $(this).find('.comment-count').text() + '</span>');
-            }
-        });
-
-        // View More Comments Button
-        $(document).on('click', '.view-more-comments', function () {
-            const post_id = $(this).data('post-id');
-            const button = $(this);
-
-            $.ajax({
-                url: 'fetch_comments.php',
-                method: 'GET',
-                data: { post_id: post_id },
-                success: function (response) {
-                    // Append the fetched comments
-                    button.closest('.mt-3').append(response);
-                    // Hide the "View More Comments" button
-                    button.hide();
+                error: function () {
+                    hasMore = false;
+                    $('#infinite-scroll-loader').html('<p class="text-muted">Error loading posts</p>');
                 },
-                error: function (xhr, status, error) {
-                    console.error('Error fetching comments:', error);
-                    showToast('Error loading comments. Please try again.', 'error');
+                complete: function () {
+                    isLoading = false;
+                    $('#infinite-scroll-loader').hide();
                 }
             });
-        });
+        }
 
-        // Handle repost with AJAX
-        $('form[name="repost"]').on('submit', function (e) {
-            e.preventDefault();
-            const form = $(this);
-            const repostCount = form.find('.repost-count');
-
-            $.ajax({
-                url: 'index.php',
-                method: 'POST',
-                data: form.serialize(),
-                success: function () {
-                    // Increment the repost count
-                    repostCount.text(parseInt(repostCount.text()) + 1);
-                    // Show toast notification
-                    showToast('Post reposted successfully!');
-                },
-                error: function (xhr, status, error) {
-                    console.error('Error reposting:', error);
-                    showToast('Error reposting. Please try again.', 'error');
-                }
-            });
-        });
-
-        // Handle comment submission with AJAX (updated to prevent page load)
-        $(document).on('submit', 'form.comment-form', function (e) {
-            e.preventDefault();
-            const form = $(this);
-            const postContainer = form.closest('.card-body');
-            const commentCount = postContainer.find('.comment-count');
-            const commentContent = form.find('textarea[name="content"]');
-            const postId = form.find('input[name="post_id"]').val();
-
-            if (commentContent.val().trim() === '') {
-                showToast('Please enter a comment', 'error');
+        // React to Post
+        function reactToPost(postId, type) {
+            <?php if (!$is_logged_in): ?>
+                window.location.href = 'login.php';
                 return;
+            <?php endif; ?>
+
+            const btn = $(`.action-btn[onclick*="reactToPost(${postId}, '${type}')"]`);
+
+            $.post('react2.php', {
+                post_id: postId,
+                type: type,
+                ajax: true
+            }, function (response) {
+                if (response.success) {
+                    // Update like count display
+                    const feedItem = btn.closest('.feed-item');
+                    const likesCount = feedItem.find('.stats span:first-child');
+
+                    if (type === 'like') {
+                        if (response.action === 'added' || response.action === 'updated') {
+                            btn.addClass('liked').find('i').removeClass('bi-heart').addClass('bi-heart-fill');
+                        } else {
+                            btn.removeClass('liked').find('i').removeClass('bi-heart-fill').addClass('bi-heart');
+                        }
+                        likesCount.html('<i class="bi bi-heart-fill text-danger"></i> ' + response.likes);
+                    }
+
+                    // Show success feedback
+                    showToast('Post ' + type + 'd successfully!', 'success');
+                }
+            }, 'json').fail(function (xhr, status, error) {
+                console.error('Error:', error);
+                showToast('Error reacting to post. Please try again.', 'error');
+            });
+        }
+
+        // Toggle Comments
+        function toggleComments(postId) {
+            <?php if (!$is_logged_in): ?>
+                window.location.href = 'login.php';
+                return;
+            <?php endif; ?>
+
+            const commentsSection = $('#comments-' + postId);
+
+            if (commentsSection.is(':visible')) {
+                commentsSection.hide();
+            } else {
+                if (commentsSection.html().trim() === '') {
+                    loadComments(postId);
+                }
+                commentsSection.show();
+            }
+        }
+
+        function loadComments(postId) {
+            $('#comments-' + postId).html('<div class="text-center p-3"><div class="spinner-border text-primary" role="status"></div></div>');
+
+            $.get('fetch_comments2.php', { post_id: postId }, function (html) {
+                $('#comments-' + postId).html(html);
+                initializeCommentEvents();
+            }).fail(function () {
+                $('#comments-' + postId).html('<p class="text-danger p-3">Error loading comments</p>');
+            });
+        }
+
+        // Initialize comment form events
+        function initializeCommentEvents() {
+            // Add comment form
+            $('.add-comment-form').on('submit', function (e) {
+                e.preventDefault();
+                const form = $(this);
+                const postId = form.data('post-id');
+                const content = form.find('input[type="text"]').val().trim();
+
+                if (!content) return;
+
+                $.post('add_comment2.php', {
+                    post_id: postId,
+                    content: content
+                }, function (response) {
+                    if (response.success) {
+                        form.find('input[type="text"]').val('');
+                        loadComments(postId); // Reload comments
+                        showToast('Comment added successfully!', 'success');
+
+                        // Update comment count
+                        const feedItem = form.closest('.feed-item');
+                        const commentCount = feedItem.find('.stats span:nth-child(2)');
+                        const currentCount = parseInt(commentCount.text()) || 0;
+                        commentCount.html('<i class="bi bi-chat"></i> ' + (currentCount + 1));
+                    }
+                }, 'json').fail(function () {
+                    showToast('Error adding comment', 'error');
+                });
+            });
+
+            // Reply form
+            $('.reply-comment-form').on('submit', function (e) {
+                e.preventDefault();
+                const form = $(this);
+                const commentId = form.data('comment-id');
+                const content = form.find('input[type="text"]').val().trim();
+
+                if (!content) return;
+
+                $.post('add_comment2.php', {
+                    parent_comment_id: commentId,
+                    content: content
+                }, function (response) {
+                    if (response.success) {
+                        form.find('input[type="text"]').val('');
+                        form.closest('.reply-form').hide();
+
+                        // Reload the specific comment section
+                        const commentItem = form.closest('.comment-item');
+                        const postId = commentItem.closest('.feed-item').data('post-id');
+                        loadComments(postId);
+
+                        showToast('Reply added successfully!', 'success');
+                    }
+                }, 'json').fail(function () {
+                    showToast('Error adding reply', 'error');
+                });
+            });
+        }
+
+        // Show reply form
+        function showReplyForm(commentId) {
+            $('#reply-form-' + commentId).show();
+        }
+
+
+
+        // Share Post with Proper Share URL
+        function sharePost(postId) {
+            <?php if (!$is_logged_in): ?>
+                window.location.href = 'login.php';
+                return;
+            <?php endif; ?>
+
+            // Create shareable URL that tracks the share
+            const shareUrl = window.location.origin + '/social/share.php?post_id=' + postId;
+
+            if (navigator.share) {
+                navigator.share({
+                    title: 'Check this post on Spark!',
+                    text: 'I found this amazing post on Spark',
+                    url: shareUrl
+                }).then(() => {
+                    showToast('Post shared successfully!', 'success');
+                    updateShareCount(postId);
+                }).catch(err => {
+                    console.log('Error sharing:', err);
+                    copyToClipboard(shareUrl, postId);
+                });
+            } else {
+                copyToClipboard(shareUrl, postId);
+            }
+        }
+
+        function copyToClipboard(text, postId) {
+            navigator.clipboard.writeText(text).then(function () {
+                showToast('Post link copied to clipboard!', 'success');
+                updateShareCount(postId);
+            }, function (err) {
+                console.error('Could not copy text: ', err);
+                // Fallback: show text in alert
+                alert('Share this link: ' + text);
+                updateShareCount(postId);
+            });
+        }
+
+        // Update share count visually
+        function updateShareCount(postId) {
+            const shareBtn = $(`button[onclick*="sharePost(${postId})"]`);
+            const shareCount = shareBtn.find('.share-count');
+
+            if (shareCount.length) {
+                const currentCount = parseInt(shareCount.text()) || 0;
+                shareCount.text(currentCount + 1);
             }
 
-            $.ajax({
-                url: 'index.php',
-                method: 'POST',
-                data: form.serialize(),
-                success: function (response) {
-                    // Increment the comment count
-                    commentCount.text(parseInt(commentCount.text()) + 1);
-                    // Clear the comment box
-                    commentContent.val('');
-                    // Show success message
-                    showToast('Comment posted successfully!');
+            // Also update in stats section
+            const feedItem = shareBtn.closest('.feed-item');
+            const statsShare = feedItem.find('.stats span:last-child');
+            if (statsShare.length) {
+                const currentStats = parseInt(statsShare.text()) || 0;
+                statsShare.html('<i class="bi bi-share"></i> ' + (currentStats + 1));
+            }
+        }
 
-                    // Refresh the comments section without reloading the page
-                    $.ajax({
-                        url: 'fetch_comments.php',
-                        method: 'GET',
-                        data: { post_id: postId },
-                        success: function (commentsResponse) {
-                            $('#comments-' + postId + ' .comments-list').html(commentsResponse);
-                        },
-                        error: function (xhr, status, error) {
-                            console.error('Error refreshing comments:', error);
-                        }
-                    });
-                },
-                error: function (xhr, status, error) {
-                    console.error('Error adding comment:', error);
-                    showToast('Error posting comment. Please try again.', 'error');
+        // Save Post
+        function savePost(postId) {
+            <?php if (!$is_logged_in): ?>
+                window.location.href = 'login.php';
+                return;
+            <?php endif; ?>
+
+            $.post('save_post.php', { post_id: postId }, function (response) {
+                if (response.success) {
+                    showToast(response.message, 'success');
+                } else {
+                    showToast(response.message, 'error');
                 }
+            }, 'json').fail(function () {
+                showToast('Error saving post', 'error');
             });
-        });
+        }
 
         // Toast notification function
         function showToast(message, type = 'success') {
+            // Remove existing toasts
+            $('.toast').remove();
+
             const toast = $(`
             <div class="toast align-items-center text-white bg-${type === 'success' ? 'success' : 'danger'} border-0 position-fixed bottom-0 end-0 m-3" role="alert" aria-live="assertive" aria-atomic="true">
                 <div class="d-flex">
@@ -636,7 +597,54 @@ $ad = $stmt->fetch(PDO::FETCH_ASSOC);
                 $(this).remove();
             });
         }
-    });
-</script>
 
+        // Toggle Image Size
+        function toggleImageSize(img) {
+            $(img).toggleClass('engagement-pulse');
+            if (img.style.maxHeight === 'none') {
+                img.style.maxHeight = '600px';
+                img.style.width = '100%';
+            } else {
+                img.style.maxHeight = 'none';
+                img.style.width = 'auto';
+            }
+        }
+
+        // View Story
+        function viewStory(storyId) {
+            window.location.href = 'story.php?id=' + storyId;
+        }
+
+        // Open Create Modal
+        function openCreateModal() {
+            window.location.href = 'create_post.php';
+        }
+
+        // Initialize comment events on page load
+        $(document).ready(function () {
+            initializeCommentEvents();
+        });
+
+        // Swipe functionality for mobile
+        let startY;
+        document.addEventListener('touchstart', e => {
+            startY = e.touches[0].clientY;
+        });
+
+        document.addEventListener('touchend', e => {
+            if (!startY) return;
+
+            const endY = e.changedTouches[0].clientY;
+            const diff = startY - endY;
+
+            if (diff > 50) { // Swipe up
+                loadMorePosts();
+            }
+
+            startY = null;
+        });
+    </script>
+</body>
+
+</html>
 <?php include 'includes/footer.php'; ?>

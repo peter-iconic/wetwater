@@ -1,10 +1,8 @@
 <?php
 session_start();
 
-if (!isset($_SESSION['user_id'])) {
-    header("Location: login.php");
-    exit();
-}
+// Check if user is logged in (but don't redirect)
+$is_logged_in = isset($_SESSION['user_id']);
 
 include 'config/db.php';
 
@@ -114,6 +112,11 @@ try {
             cursor: pointer;
         }
 
+        .action-buttons i.disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
         .sound-toggle {
             position: absolute;
             top: 20px;
@@ -128,6 +131,11 @@ try {
             right: 20px;
             color: white;
             cursor: pointer;
+        }
+
+        .share-button.disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
         }
 
         .comments-overlay {
@@ -161,6 +169,16 @@ try {
             font-size: 24px;
             cursor: pointer;
         }
+
+        .login-prompt {
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 10px;
+            border-radius: 5px;
+            text-align: center;
+            margin-top: 10px;
+            font-size: 12px;
+        }
     </style>
 </head>
 
@@ -185,8 +203,8 @@ try {
                     <i class="bi bi-volume-mute"></i>
                 </div>
 
-                <div class="share-button"
-                    onclick="shareVideo(<?php echo $video['id']; ?>,'<?php echo htmlspecialchars($video['video_url']); ?>')">
+                <div class="share-button <?php echo !$is_logged_in ? 'disabled' : ''; ?>"
+                    onclick="<?php echo $is_logged_in ? "shareVideo({$video['id']}, '" . htmlspecialchars($video['video_url']) . "')" : "showLoginPrompt()"; ?>">
                     <i class="bi bi-share"></i> <span class="share-count"><?php echo $video['shares']; ?></span>
                 </div>
 
@@ -197,15 +215,19 @@ try {
                 </div>
 
                 <div class="action-buttons">
-                    <i class="bi bi-hand-thumbs-up text-success" onclick="reactToVideo(<?php echo $video['id']; ?>,'like')">
+                    <i class="bi bi-hand-thumbs-up text-success <?php echo !$is_logged_in ? 'disabled' : ''; ?>"
+                        onclick="<?php echo $is_logged_in ? "reactToVideo({$video['id']},'like')" : "showLoginPrompt()"; ?>">
                         <span class="like-count"><?php echo $video['likes']; ?></span>
                     </i>
-                    <i class="bi bi-hand-thumbs-down text-danger"
-                        onclick="reactToVideo(<?php echo $video['id']; ?>,'dislike')">
+                    <i class="bi bi-hand-thumbs-down text-danger <?php echo !$is_logged_in ? 'disabled' : ''; ?>"
+                        onclick="<?php echo $is_logged_in ? "reactToVideo({$video['id']},'dislike')" : "showLoginPrompt()"; ?>">
                         <span class="dislike-count"><?php echo $video['dislikes']; ?></span>
                     </i>
-                    <i class="bi bi-eye text-primary"><span class="view-count"><?php echo $video['views']; ?></span></i>
-                    <i class="bi bi-chat text-light" onclick="showComments(<?php echo $video['id']; ?>)">
+                    <i class="bi bi-eye text-primary">
+                        <span class="view-count"><?php echo $video['views']; ?></span>
+                    </i>
+                    <i class="bi bi-chat text-light <?php echo !$is_logged_in ? 'disabled' : ''; ?>"
+                        onclick="<?php echo $is_logged_in ? "showComments({$video['id']})" : "showLoginPrompt()"; ?>">
                         <span class="comment-count"><?php echo $video['comments']; ?></span>
                     </i>
                 </div>
@@ -220,6 +242,9 @@ try {
 
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script>
+        // Check if user is logged in (from PHP variable)
+        const isLoggedIn = <?php echo $is_logged_in ? 'true' : 'false'; ?>;
+
         document.addEventListener("DOMContentLoaded", () => {
             const videos = document.querySelectorAll(".reel-video");
             const container = document.querySelector(".reels-container");
@@ -241,34 +266,78 @@ try {
 
         function toggleSound(button) {
             const video = button.closest(".reel").querySelector(".reel-video");
-            if (video.muted) { video.muted = false; button.innerHTML = '<i class="bi bi-volume-up"></i>'; }
-            else { video.muted = true; button.innerHTML = '<i class="bi bi-volume-mute"></i>'; }
+            if (video.muted) {
+                video.muted = false;
+                button.innerHTML = '<i class="bi bi-volume-up"></i>';
+            } else {
+                video.muted = true;
+                button.innerHTML = '<i class="bi bi-volume-mute"></i>';
+            }
         }
 
         function shareVideo(videoId, videoUrl) {
-            if (navigator.share) { navigator.share({ title: 'Check this video!', url: videoUrl }); }
-            else alert('Sharing not supported.');
+            if (!isLoggedIn) {
+                showLoginPrompt();
+                return;
+            }
+
+            if (navigator.share) {
+                navigator.share({ title: 'Check this video!', url: videoUrl });
+            } else {
+                alert('Sharing not supported.');
+            }
         }
 
         function reactToVideo(videoId, type) {
-            fetch('react.php', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ video_id: videoId, type: type }) })
-                .then(res => res.json()).then(data => {
+            if (!isLoggedIn) {
+                showLoginPrompt();
+                return;
+            }
+
+            fetch('react.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ video_id: videoId, type: type })
+            })
+                .then(res => res.json())
+                .then(data => {
                     if (data.success) {
                         const reel = document.querySelector(`.reel[data-video-id="${videoId}"]`);
                         reel.querySelector('.like-count').innerText = data.likes;
                         reel.querySelector('.dislike-count').innerText = data.dislikes;
                     }
+                })
+                .catch(error => {
+                    console.error('Error reacting to video:', error);
                 });
         }
 
         function showComments(videoId) {
-            fetch(`fetch_comments.php?video_id=${videoId}`).then(res => res.text()).then(html => {
-                document.getElementById('commentsContainer').innerHTML = html;
-                document.getElementById('commentsOverlay').style.display = 'flex';
-            });
+            if (!isLoggedIn) {
+                showLoginPrompt();
+                return;
+            }
+
+            fetch(`fetch_comments.php?video_id=${videoId}`)
+                .then(res => res.text())
+                .then(html => {
+                    document.getElementById('commentsContainer').innerHTML = html;
+                    document.getElementById('commentsOverlay').style.display = 'flex';
+                })
+                .catch(error => {
+                    console.error('Error fetching comments:', error);
+                });
         }
 
-        function closeComments() { document.getElementById('commentsOverlay').style.display = 'none'; }
+        function closeComments() {
+            document.getElementById('commentsOverlay').style.display = 'none';
+        }
+
+        function showLoginPrompt() {
+            alert('Please log in to interact with videos.');
+            // Alternatively, you could show a modal or redirect to login page
+            // window.location.href = 'login.php';
+        }
 
         document.getElementById('commentsOverlay').addEventListener('click', (e) => {
             if (e.target === document.getElementById('commentsOverlay')) closeComments();

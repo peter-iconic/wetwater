@@ -24,27 +24,47 @@
 
             <!-- Plus Button (Centered) -->
             <div class="col text-center">
-                <button type="button" class="btn btn-primary rounded-circle text-white"
-                    style="width: 50px; height: 50px; display: flex; align-items: center; justify-content: center; margin: -10px auto; background-color: #6f42c1; border: none;"
-                    data-bs-toggle="modal" data-bs-target="#createModal">
-                    <i class="bi bi-plus-lg" style="font-size: 1.5rem;"></i>
-                </button>
+                <?php if (isset($_SESSION['user_id'])): ?>
+                    <button type="button" class="btn btn-primary rounded-circle text-white"
+                        style="width: 50px; height: 50px; display: flex; align-items: center; justify-content: center; margin: -10px auto; background-color: #6f42c1; border: none;"
+                        data-bs-toggle="modal" data-bs-target="#createModal">
+                        <i class="bi bi-plus-lg" style="font-size: 1.5rem;"></i>
+                    </button>
+                <?php else: ?>
+                    <a href="login.php"
+                        class="btn btn-primary rounded-circle text-white d-flex align-items-center justify-content-center"
+                        style="width: 50px; height: 50px; margin: -10px auto; background-color: #6f42c1; border: none; text-decoration: none;">
+                        <i class="bi bi-plus-lg" style="font-size: 1.5rem;"></i>
+                    </a>
+                <?php endif; ?>
             </div>
-
-            <!-- Messages Button -->
+            <!-- Message Button -->
             <div class="col text-center">
-                <a href="messages.php" class="btn btn-purple w-100 text-white">
-                    <i class="bi bi-chat"></i><br>
-                    <small>Messages</small>
-                </a>
+                <?php if (isset($_SESSION['user_id'])): ?>
+                    <a href="messages.php" class="btn btn-purple w-100 text-white">
+                        <i class="bi bi-chat"></i><br>
+                        <small>Message</small>
+                    </a>
+                <?php else: ?>
+                    <a href="login.php" class="btn btn-purple w-100 text-white">
+                        <i class="bi bi-chat"></i><br>
+                        <small>Messages</small>
+                    </a>
+                <?php endif; ?>
             </div>
-
             <!-- Profile Button -->
             <div class="col text-center">
-                <a href="profile.php?id=<?php echo $_SESSION['user_id']; ?>" class="btn btn-purple w-100 text-white">
-                    <i class="bi bi-person"></i><br>
-                    <small>Profile</small>
-                </a>
+                <?php if (isset($_SESSION['user_id'])): ?>
+                    <a href="profile.php?id=<?php echo $_SESSION['user_id']; ?>" class="btn btn-purple w-100 text-white">
+                        <i class="bi bi-person"></i><br>
+                        <small>Profile</small>
+                    </a>
+                <?php else: ?>
+                    <a href="login.php" class="btn btn-purple w-100 text-white">
+                        <i class="bi bi-person"></i><br>
+                        <small>Profile</small>
+                    </a>
+                <?php endif; ?>
             </div>
         </div>
     </div>

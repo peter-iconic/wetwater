@@ -24,3 +24,4 @@ if (isset($_SESSION['error'])) {
     </div>
     <button type="submit" class="btn btn-primary">Login</button>
 </form>
+<a href="forgot_password.php">forgot password?</a>

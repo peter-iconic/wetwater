@@ -1,5 +1,4 @@
 <?php
-session_start();
 // Redirect if the user is not logged in
 
 include 'config/db.php';

@@ -1,6 +1,6 @@
 <?php
 // Start the session
-
+session_start();
 // Include the header
 include 'includes/header.php';
 
@@ -76,10 +76,4 @@ if (!isset($_SESSION['user_id'])) {
             contentTextarea.value += emoji;
         }
     });
-<<<<<<< HEAD
 </script>
-=======
-</script>
-
-<?php include 'includes/footer.php'; ?>
->>>>>>> origin/master
