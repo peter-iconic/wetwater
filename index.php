@@ -145,18 +145,13 @@ function time_elapsed_string($datetime, $full = false)
     <title>Spark - Your Personalized Feed</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
-    <link rel="stylesheet" href="inddex.css">
+    <link rel="stylesheet" href="index.css">
 </head>
 
 <body>
     <?php include 'includes/header.php'; ?>
 
-    <!-- Swipe Hint -->
-    <?php if ($page == 1): ?>
-        <div class="swipe-hint d-md-none">
-            <i class="bi bi-arrow-up"></i> Swipe up for more content
-        </div>
-    <?php endif; ?>
+
 
     <!-- Floating Action Button -->
     <?php if ($is_logged_in): ?>
@@ -264,37 +259,36 @@ function time_elapsed_string($datetime, $full = false)
                         <!-- Post Stats -->
                         <div class="stats">
                             <span class="me-3">
-                                <i class="bi bi-heart-fill text-danger"></i> <?php echo $post['likes']; ?>
+                                <i class="bi bi-heart-fill"></i> <?php echo $post['likes']; ?>
                             </span>
                             <span class="me-3">
                                 <i class="bi bi-chat"></i> <?php echo $post['comments']; ?>
                             </span>
                             <span>
-                                <i class="bi bi-share"></i> <?php echo $post['reposts']; ?>
+                                <i class="bi bi-arrow-repeat"></i> <?php echo $post['reposts']; ?>
                             </span>
                         </div>
+
 
                         <!-- Post Actions -->
                         <div class="post-actions">
                             <button class="action-btn like-btn <?php echo $post['user_liked'] ? 'liked' : ''; ?>"
                                 onclick="reactToPost(<?php echo $post['id']; ?>, 'like')" <?php echo !$is_logged_in ? 'disabled' : ''; ?>>
                                 <i class="bi bi-heart<?php echo $post['user_liked'] ? '-fill' : ''; ?>"></i>
-                                <span>Like</span>
                             </button>
 
                             <button class="action-btn" onclick="toggleComments(<?php echo $post['id']; ?>)" <?php echo !$is_logged_in ? 'disabled' : ''; ?>>
                                 <i class="bi bi-chat"></i>
-                                <span>Comment</span>
+                            </button>
+
+                            <!-- Repost Button -->
+                            <button class="action-btn repost-btn" onclick="repost(<?php echo $post['id']; ?>)" <?php echo !$is_logged_in ? 'disabled' : ''; ?>>
+                                <i class="bi bi-arrow-repeat"></i>
+                                <span class="repost-count"><?php echo $post['reposts']; ?></span>
                             </button>
 
                             <button class="action-btn" onclick="sharePost(<?php echo $post['id']; ?>)" <?php echo !$is_logged_in ? 'disabled' : ''; ?>>
                                 <i class="bi bi-share"></i>
-                                <span>Share</span>
-                            </button>
-
-                            <button class="action-btn" onclick="savePost(<?php echo $post['id']; ?>)" <?php echo !$is_logged_in ? 'disabled' : ''; ?>>
-                                <i class="bi bi-bookmark"></i>
-                                <span>Save</span>
                             </button>
                         </div>
 
@@ -368,9 +362,9 @@ function time_elapsed_string($datetime, $full = false)
                 return;
             <?php endif; ?>
 
-            const btn = $(`.action-btn[onclick*="reactToPost(${postId}, '${type}')"]`);
+            const btn = $(`.like-btn[onclick*="reactToPost(${postId}, '${type}')"]`);
 
-            $.post('react2.php', {
+            $.post('react.php', {
                 post_id: postId,
                 type: type,
                 ajax: true
@@ -383,10 +377,15 @@ function time_elapsed_string($datetime, $full = false)
                     if (type === 'like') {
                         if (response.action === 'added' || response.action === 'updated') {
                             btn.addClass('liked').find('i').removeClass('bi-heart').addClass('bi-heart-fill');
+                            // Add pulse animation
+                            btn.find('i').css('animation', 'heartBeat 0.6s ease');
+                            setTimeout(() => {
+                                btn.find('i').css('animation', '');
+                            }, 600);
                         } else {
                             btn.removeClass('liked').find('i').removeClass('bi-heart-fill').addClass('bi-heart');
                         }
-                        likesCount.html('<i class="bi bi-heart-fill text-danger"></i> ' + response.likes);
+                        likesCount.html('<i class="bi bi-heart-fill"></i> ' + response.likes);
                     }
 
                     // Show success feedback
@@ -395,6 +394,45 @@ function time_elapsed_string($datetime, $full = false)
             }, 'json').fail(function (xhr, status, error) {
                 console.error('Error:', error);
                 showToast('Error reacting to post. Please try again.', 'error');
+            });
+        }
+        // Repost functionality
+        function repost(postId) {
+            <?php if (!$is_logged_in): ?>
+                window.location.href = 'login.php';
+                return;
+            <?php endif; ?>
+
+            const btn = $(`.repost-btn[onclick*="repost(${postId})"]`);
+
+            $.post('repost.php', {
+                post_id: postId
+            }, function (response) {
+                if (response.success) {
+                    // Update repost count
+                    const repostCount = btn.find('.repost-count');
+                    const currentCount = parseInt(repostCount.text()) || 0;
+
+                    if (response.action === 'added') {
+                        repostCount.text(currentCount + 1);
+                        showToast('Post reposted successfully!', 'success');
+                        btn.addClass('active');
+                    } else {
+                        repostCount.text(Math.max(0, currentCount - 1));
+                        showToast('Repost removed!', 'info');
+                        btn.removeClass('active');
+                    }
+
+                    // Also update in stats section
+                    const feedItem = btn.closest('.feed-item');
+                    const statsRepost = feedItem.find('.stats span:last-child');
+                    if (statsRepost.length) {
+                        statsRepost.html('<i class="bi bi-share"></i> ' + response.repost_count);
+                    }
+                }
+            }, 'json').fail(function (xhr, status, error) {
+                console.error('Error:', error);
+                showToast('Error reposting. Please try again.', 'error');
             });
         }
 
@@ -418,28 +456,36 @@ function time_elapsed_string($datetime, $full = false)
         }
 
         function loadComments(postId) {
-            $('#comments-' + postId).html('<div class="text-center p-3"><div class="spinner-border text-primary" role="status"></div></div>');
+            $('#comments-' + postId).html('<div class="text-center p-3"><div class="spinner-border text-primary" role="status"></div><p class="mt-2">Loading comments...</p></div>');
 
-            $.get('fetch_comments2.php', { post_id: postId }, function (html) {
+            $.get('fetch_comments.php', { post_id: postId }, function (html) {
                 $('#comments-' + postId).html(html);
                 initializeCommentEvents();
-            }).fail(function () {
-                $('#comments-' + postId).html('<p class="text-danger p-3">Error loading comments</p>');
+            }).fail(function (xhr, status, error) {
+                console.error('Error loading comments:', error);
+                $('#comments-' + postId).html('<p class="text-danger p-3">Error loading comments. Please try again.</p>');
             });
         }
 
         // Initialize comment form events
         function initializeCommentEvents() {
+            console.log('Initializing comment events...');
+
             // Add comment form
-            $('.add-comment-form').on('submit', function (e) {
+            $(document).off('submit', '.add-comment-form').on('submit', '.add-comment-form', function (e) {
                 e.preventDefault();
+                console.log('Add comment form submitted');
+
                 const form = $(this);
                 const postId = form.data('post-id');
                 const content = form.find('input[type="text"]').val().trim();
 
-                if (!content) return;
+                if (!content) {
+                    showToast('Please enter a comment', 'error');
+                    return;
+                }
 
-                $.post('add_comment2.php', {
+                $.post('add_comment.php', {
                     post_id: postId,
                     content: content
                 }, function (response) {
@@ -453,22 +499,30 @@ function time_elapsed_string($datetime, $full = false)
                         const commentCount = feedItem.find('.stats span:nth-child(2)');
                         const currentCount = parseInt(commentCount.text()) || 0;
                         commentCount.html('<i class="bi bi-chat"></i> ' + (currentCount + 1));
+                    } else {
+                        showToast(response.message || 'Error adding comment', 'error');
                     }
-                }, 'json').fail(function () {
-                    showToast('Error adding comment', 'error');
+                }, 'json').fail(function (xhr, status, error) {
+                    console.error('Error adding comment:', error);
+                    showToast('Error adding comment. Please try again.', 'error');
                 });
             });
 
             // Reply form
-            $('.reply-comment-form').on('submit', function (e) {
+            $(document).off('submit', '.reply-comment-form').on('submit', '.reply-comment-form', function (e) {
                 e.preventDefault();
+                console.log('Reply form submitted');
+
                 const form = $(this);
                 const commentId = form.data('comment-id');
                 const content = form.find('input[type="text"]').val().trim();
 
-                if (!content) return;
+                if (!content) {
+                    showToast('Please enter a reply', 'error');
+                    return;
+                }
 
-                $.post('add_comment2.php', {
+                $.post('add_comment.php', {
                     parent_comment_id: commentId,
                     content: content
                 }, function (response) {
@@ -476,25 +530,26 @@ function time_elapsed_string($datetime, $full = false)
                         form.find('input[type="text"]').val('');
                         form.closest('.reply-form').hide();
 
-                        // Reload the specific comment section
-                        const commentItem = form.closest('.comment-item');
-                        const postId = commentItem.closest('.feed-item').data('post-id');
+                        // Reload the comments
+                        const postId = form.closest('.feed-item').data('post-id');
                         loadComments(postId);
 
                         showToast('Reply added successfully!', 'success');
+                    } else {
+                        showToast(response.message || 'Error adding reply', 'error');
                     }
-                }, 'json').fail(function () {
-                    showToast('Error adding reply', 'error');
+                }, 'json').fail(function (xhr, status, error) {
+                    console.error('Error adding reply:', error);
+                    showToast('Error adding reply. Please try again.', 'error');
                 });
             });
+
+            // Reply button click
+            $(document).off('click', '.reply-btn').on('click', '.reply-btn', function () {
+                const commentId = $(this).data('comment-id');
+                $('#reply-form-' + commentId).show();
+            });
         }
-
-        // Show reply form
-        function showReplyForm(commentId) {
-            $('#reply-form-' + commentId).show();
-        }
-
-
 
         // Share Post with Proper Share URL
         function sharePost(postId) {
@@ -504,7 +559,7 @@ function time_elapsed_string($datetime, $full = false)
             <?php endif; ?>
 
             // Create shareable URL that tracks the share
-            const shareUrl = window.location.origin + '/social/share.php?post_id=' + postId;
+            const shareUrl = window.location.origin + '/share.php?post_id=' + postId;
 
             if (navigator.share) {
                 navigator.share({
@@ -537,39 +592,11 @@ function time_elapsed_string($datetime, $full = false)
 
         // Update share count visually
         function updateShareCount(postId) {
-            const shareBtn = $(`button[onclick*="sharePost(${postId})"]`);
-            const shareCount = shareBtn.find('.share-count');
-
-            if (shareCount.length) {
-                const currentCount = parseInt(shareCount.text()) || 0;
-                shareCount.text(currentCount + 1);
-            }
-
-            // Also update in stats section
-            const feedItem = shareBtn.closest('.feed-item');
-            const statsShare = feedItem.find('.stats span:last-child');
-            if (statsShare.length) {
-                const currentStats = parseInt(statsShare.text()) || 0;
-                statsShare.html('<i class="bi bi-share"></i> ' + (currentStats + 1));
-            }
-        }
-
-        // Save Post
-        function savePost(postId) {
-            <?php if (!$is_logged_in): ?>
-                window.location.href = 'login.php';
-                return;
-            <?php endif; ?>
-
-            $.post('save_post.php', { post_id: postId }, function (response) {
-                if (response.success) {
-                    showToast(response.message, 'success');
-                } else {
-                    showToast(response.message, 'error');
-                }
-            }, 'json').fail(function () {
-                showToast('Error saving post', 'error');
-            });
+            // Send AJAX to update share count in database
+            $.post('update_share_count.php', { post_id: postId })
+                .fail(function () {
+                    console.log('Failed to track share');
+                });
         }
 
         // Toast notification function
@@ -623,6 +650,11 @@ function time_elapsed_string($datetime, $full = false)
         // Initialize comment events on page load
         $(document).ready(function () {
             initializeCommentEvents();
+
+            // Re-initialize when new content is loaded via AJAX
+            $(document).ajaxComplete(function () {
+                initializeCommentEvents();
+            });
         });
 
         // Swipe functionality for mobile
