@@ -2,11 +2,16 @@
 session_start();
 include 'config/db.php';
 
+// Check if user is logged in
 $is_logged_in = isset($_SESSION['user_id']);
 $user_id = $is_logged_in ? $_SESSION['user_id'] : null;
-$page = isset($_GET['page']) ? intval($_GET['page']) : 1;
 
-// Use the same function from index.php
+// Get page number from AJAX request
+$page = isset($_GET['page']) ? max(1, intval($_GET['page'])) : 1;
+$limit = 10;
+$offset = ($page - 1) * $limit;
+
+// Function to get posts (same as index.php)
 function getPersonalizedFeed($pdo, $user_id = null, $page = 1, $limit = 10)
 {
     $offset = ($page - 1) * $limit;
@@ -14,6 +19,7 @@ function getPersonalizedFeed($pdo, $user_id = null, $page = 1, $limit = 10)
     $offset = (int) $offset;
 
     if ($user_id) {
+        // For logged-in users: Personalized feed with advanced algorithm
         $query = "
             SELECT 
                 p.*,
@@ -51,6 +57,7 @@ function getPersonalizedFeed($pdo, $user_id = null, $page = 1, $limit = 10)
         $stmt->bindValue(5, $offset, PDO::PARAM_INT);
         $stmt->execute();
     } else {
+        // For non-logged-in users: Trending content
         $query = "
             SELECT 
                 p.*,
@@ -86,71 +93,7 @@ function getPersonalizedFeed($pdo, $user_id = null, $page = 1, $limit = 10)
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
-$posts = getPersonalizedFeed($pdo, $user_id, $page, 10);
-
-// Generate HTML for new posts
-$html = '';
-foreach ($posts as $post) {
-    $html .= '
-    <div class="feed-item" data-post-id="' . $post['id'] . '">
-        <div class="post-header">
-            <img src="' . htmlspecialchars($post['profile_picture']) . '" 
-                 class="user-avatar" 
-                 alt="' . htmlspecialchars($post['username']) . '"
-                 onerror="this.src=\'default_profile.jpg\'">
-            <div class="user-info">
-                <a href="profile.php?id=' . $post['user_id'] . '" class="username">
-                    ' . htmlspecialchars($post['username']) . '
-                    ' . ($post['content_score'] > 80 ? '<span class="trending-badge">TRENDING</span>' : '') . '
-                </a>
-                <div class="post-time">
-                    ' . time_elapsed_string($post['created_at']) . '
-                </div>
-            </div>
-            <button class="btn btn-sm btn-outline-secondary">
-                <i class="bi bi-three-dots"></i>
-            </button>
-        </div>
-        <div class="post-content">
-            ' . ($post['image'] ? '<img src="' . htmlspecialchars($post['image']) . '" class="post-image" alt="Post image" onclick="toggleImageSize(this)" onerror="this.style.display=\'none\'">' : '') . '
-            ' . ($post['content'] ? '<div class="post-text">' . nl2br(htmlspecialchars($post['content'])) . '</div>' : '') . '
-            ' . ($post['caption'] ? '<div class="post-text text-muted"><small>' . nl2br(htmlspecialchars($post['caption'])) . '</small></div>' : '') . '
-        </div>
-        <div class="stats">
-            <span class="me-3"><i class="bi bi-heart-fill text-danger"></i> ' . $post['likes'] . '</span>
-            <span class="me-3"><i class="bi bi-chat"></i> ' . $post['comments'] . '</span>
-            <span><i class="bi bi-share"></i> ' . $post['reposts'] . '</span>
-        </div>
-        <div class="post-actions">
-            <button class="action-btn like-btn ' . ($post['user_liked'] ? 'liked' : '') . '" 
-                    onclick="reactToPost(' . $post['id'] . ', \'like\')">
-                <i class="bi bi-heart' . ($post['user_liked'] ? '-fill' : '') . '"></i>
-                <span>Like</span>
-            </button>
-            <button class="action-btn" onclick="toggleComments(' . $post['id'] . ')">
-                <i class="bi bi-chat"></i>
-                <span>Comment</span>
-            </button>
-            <button class="action-btn" onclick="sharePost(' . $post['id'] . ')">
-                <i class="bi bi-share"></i>
-                <span>Share</span>
-            </button>
-            <button class="action-btn" onclick="savePost(' . $post['id'] . ')">
-                <i class="bi bi-bookmark"></i>
-                <span>Save</span>
-            </button>
-        </div>
-        <div class="comments-section" id="comments-' . $post['id'] . '" style="display: none;"></div>
-    </div>';
-}
-
-header('Content-Type: application/json');
-echo json_encode([
-    'html' => $html,
-    'hasMore' => count($posts) === 10,
-    'posts' => $posts
-]);
-
+// Helper function to format time (same as index.php)
 function time_elapsed_string($datetime, $full = false)
 {
     $now = new DateTime;
@@ -182,4 +125,112 @@ function time_elapsed_string($datetime, $full = false)
         $string = array_slice($string, 0, 1);
     return $string ? implode(', ', $string) . ' ago' : 'just now';
 }
+
+// Get posts for the current page
+$posts = getPersonalizedFeed($pdo, $user_id, $page, $limit);
+
+// Track views for recommendation algorithm
+if ($user_id && !empty($posts)) {
+    foreach ($posts as $post) {
+        $stmt = $pdo->prepare("INSERT INTO user_behavior (user_id, action_type, target_id, target_type) VALUES (?, 'view', ?, 'post')");
+        $stmt->execute([$user_id, $post['id']]);
+    }
+}
+
+// Generate HTML for the posts
+$html = '';
+if (empty($posts)) {
+    $response = [
+        'success' => true,
+        'posts' => [],
+        'html' => '',
+        'hasMore' => false
+    ];
+} else {
+    foreach ($posts as $post) {
+        $html .= '
+        <div class="feed-item" data-post-id="' . $post['id'] . '">
+            <!-- Post Header -->
+            <div class="post-header">
+                <img src="' . htmlspecialchars($post['profile_picture']) . '" class="user-avatar"
+                    alt="' . htmlspecialchars($post['username']) . '"
+                    onerror="this.src=\'default_profile.jpg\'">
+                <div class="user-info">
+                    <a href="profile.php?id=' . $post['user_id'] . '" class="username">
+                        ' . htmlspecialchars($post['username']) . '
+                        ' . ($post['content_score'] > 80 ? '<span class="trending-badge">TRENDING</span>' : '') . '
+                    </a>
+                    <div class="post-time">
+                        ' . time_elapsed_string($post['created_at']) . '
+                    </div>
+                </div>
+                <button class="btn btn-sm btn-outline-secondary">
+                    <i class="bi bi-three-dots"></i>
+                </button>
+            </div>
+
+            <!-- Post Content -->
+            <div class="post-content">
+                ' . (!empty($post['image']) ? '<img src="' . htmlspecialchars($post['image']) . '" class="post-image" alt="Post image" onclick="toggleImageSize(this)" onerror="this.style.display=\'none\'">' : '') . '
+
+                ' . (!empty($post['content']) ? '<div class="post-text">' . nl2br(htmlspecialchars($post['content'])) . '</div>' : '') . '
+
+                ' . (!empty($post['caption']) ? '<div class="post-text text-muted"><small>' . nl2br(htmlspecialchars($post['caption'])) . '</small></div>' : '') . '
+            </div>
+
+            <!-- Post Actions -->
+            <div class="post-actions">
+                <button class="action-btn like-btn ' . ($post['user_liked'] ? 'liked' : '') . '"
+                    onclick="reactToPost(' . $post['id'] . ', \'like\')" ' . (!$is_logged_in ? 'disabled' : '') . '>
+                    <i class="bi bi-heart' . ($post['user_liked'] ? '-fill' : '') . '"></i>' . $post['likes'] . '
+                </button>
+
+                <button class="action-btn" onclick="toggleComments(' . $post['id'] . ')" ' . (!$is_logged_in ? 'disabled' : '') . '>
+                    <i class="bi bi-chat"></i> ' . $post['comments'] . '
+                </button>
+
+                <!-- Repost Button -->
+                <button class="action-btn repost-btn" onclick="repost(' . $post['id'] . ')" ' . (!$is_logged_in ? 'disabled' : '') . '>
+                    <i class="bi bi-arrow-repeat"></i>
+                    <span class="repost-count">' . $post['reposts'] . '</span>
+                </button>
+
+                <button class="action-btn" onclick="sharePost(' . $post['id'] . ')" ' . (!$is_logged_in ? 'disabled' : '') . '>
+                    <i class="bi bi-share"></i>
+                </button>
+            </div>
+
+            <!-- Comments Section (Initially Hidden) -->
+            <div class="comments-section" id="comments-' . $post['id'] . '" style="display: none;">
+                <div class="comments-container" id="comments-container-' . $post['id'] . '">
+                    <!-- Comments will be loaded here via AJAX -->
+                </div>
+                
+                <!-- Add Comment Form -->
+                ' . ($is_logged_in ? '
+                <div class="add-comment-form-container">
+                    <form class="add-comment-form" data-post-id="' . $post['id'] . '">
+                        <div class="input-group">
+                            <input type="text" class="form-control" placeholder="Write a comment..." required>
+                            <button type="submit" class="btn btn-primary">
+                                <i class="bi bi-send"></i>
+                            </button>
+                        </div>
+                    </form>
+                </div>' : '') . '
+            </div>
+        </div>';
+    }
+
+    $response = [
+        'success' => true,
+        'posts' => $posts,
+        'html' => $html,
+        'hasMore' => count($posts) === $limit
+    ];
+}
+
+// Return JSON response
+header('Content-Type: application/json');
+echo json_encode($response);
 ?>

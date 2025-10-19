@@ -142,7 +142,7 @@ function time_elapsed_string($datetime, $full = false)
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Spark - Your Personalized Feed</title>
+    <title>WetWater</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
     <link rel="stylesheet" href="index.css">
@@ -150,8 +150,6 @@ function time_elapsed_string($datetime, $full = false)
 
 <body>
     <?php include 'includes/header.php'; ?>
-
-
 
     <!-- Floating Action Button -->
     <?php if ($is_logged_in): ?>
@@ -256,29 +254,16 @@ function time_elapsed_string($datetime, $full = false)
                             <?php endif; ?>
                         </div>
 
-                        <!-- Post Stats -->
-                        <div class="stats">
-                            <span class="me-3">
-                                <i class="bi bi-heart-fill"></i> <?php echo $post['likes']; ?>
-                            </span>
-                            <span class="me-3">
-                                <i class="bi bi-chat"></i> <?php echo $post['comments']; ?>
-                            </span>
-                            <span>
-                                <i class="bi bi-arrow-repeat"></i> <?php echo $post['reposts']; ?>
-                            </span>
-                        </div>
-
-
                         <!-- Post Actions -->
                         <div class="post-actions">
                             <button class="action-btn like-btn <?php echo $post['user_liked'] ? 'liked' : ''; ?>"
                                 onclick="reactToPost(<?php echo $post['id']; ?>, 'like')" <?php echo !$is_logged_in ? 'disabled' : ''; ?>>
-                                <i class="bi bi-heart<?php echo $post['user_liked'] ? '-fill' : ''; ?>"></i>
+                                <i
+                                    class="bi bi-heart<?php echo $post['user_liked'] ? '-fill' : ''; ?>"></i><?php echo $post['likes']; ?>
                             </button>
 
                             <button class="action-btn" onclick="toggleComments(<?php echo $post['id']; ?>)" <?php echo !$is_logged_in ? 'disabled' : ''; ?>>
-                                <i class="bi bi-chat"></i>
+                                <i class="bi bi-chat"></i> <?php echo $post['comments']; ?>
                             </button>
 
                             <!-- Repost Button -->
@@ -294,7 +279,23 @@ function time_elapsed_string($datetime, $full = false)
 
                         <!-- Comments Section (Initially Hidden) -->
                         <div class="comments-section" id="comments-<?php echo $post['id']; ?>" style="display: none;">
-                            <!-- Comments will be loaded via AJAX -->
+                            <div class="comments-container" id="comments-container-<?php echo $post['id']; ?>">
+                                <!-- Comments will be loaded here via AJAX -->
+                            </div>
+
+                            <!-- Add Comment Form -->
+                            <?php if ($is_logged_in): ?>
+                                <div class="add-comment-form-container">
+                                    <form class="add-comment-form" data-post-id="<?php echo $post['id']; ?>">
+                                        <div class="input-group">
+                                            <input type="text" class="form-control" placeholder="Write a comment..." required>
+                                            <button type="submit" class="btn btn-primary">
+                                                <i class="bi bi-send"></i>
+                                            </button>
+                                        </div>
+                                    </form>
+                                </div>
+                            <?php endif; ?>
                         </div>
                     </div>
                 <?php endforeach; ?>
@@ -311,6 +312,7 @@ function time_elapsed_string($datetime, $full = false)
 
     <!-- JavaScript -->
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
         let currentPage = <?php echo $page; ?>;
         let isLoading = false;
@@ -339,6 +341,8 @@ function time_elapsed_string($datetime, $full = false)
                     if (response.posts && response.posts.length > 0) {
                         $('#feed-items').append(response.html);
                         hasMore = response.hasMore;
+                        // Re-initialize comment events for new posts
+                        initializeCommentEvents();
                     } else {
                         hasMore = false;
                         $('#infinite-scroll-loader').html('<p class="text-muted">No more posts to load</p>');
@@ -370,13 +374,13 @@ function time_elapsed_string($datetime, $full = false)
                 ajax: true
             }, function (response) {
                 if (response.success) {
-                    // Update like count display
-                    const feedItem = btn.closest('.feed-item');
-                    const likesCount = feedItem.find('.stats span:first-child');
-
                     if (type === 'like') {
                         if (response.action === 'added' || response.action === 'updated') {
                             btn.addClass('liked').find('i').removeClass('bi-heart').addClass('bi-heart-fill');
+                            // Update like count in button text
+                            const currentText = btn.html();
+                            const newCount = response.likes;
+                            btn.html(currentText.replace(/\d+/, newCount));
                             // Add pulse animation
                             btn.find('i').css('animation', 'heartBeat 0.6s ease');
                             setTimeout(() => {
@@ -384,8 +388,11 @@ function time_elapsed_string($datetime, $full = false)
                             }, 600);
                         } else {
                             btn.removeClass('liked').find('i').removeClass('bi-heart-fill').addClass('bi-heart');
+                            // Update like count in button text
+                            const currentText = btn.html();
+                            const newCount = response.likes;
+                            btn.html(currentText.replace(/\d+/, newCount));
                         }
-                        likesCount.html('<i class="bi bi-heart-fill"></i> ' + response.likes);
                     }
 
                     // Show success feedback
@@ -396,6 +403,7 @@ function time_elapsed_string($datetime, $full = false)
                 showToast('Error reacting to post. Please try again.', 'error');
             });
         }
+
         // Repost functionality
         function repost(postId) {
             <?php if (!$is_logged_in): ?>
@@ -422,13 +430,6 @@ function time_elapsed_string($datetime, $full = false)
                         showToast('Repost removed!', 'info');
                         btn.removeClass('active');
                     }
-
-                    // Also update in stats section
-                    const feedItem = btn.closest('.feed-item');
-                    const statsRepost = feedItem.find('.stats span:last-child');
-                    if (statsRepost.length) {
-                        statsRepost.html('<i class="bi bi-share"></i> ' + response.repost_count);
-                    }
                 }
             }, 'json').fail(function (xhr, status, error) {
                 console.error('Error:', error);
@@ -436,7 +437,7 @@ function time_elapsed_string($datetime, $full = false)
             });
         }
 
-        // Toggle Comments
+        // Toggle Comments with proper collapse
         function toggleComments(postId) {
             <?php if (!$is_logged_in): ?>
                 window.location.href = 'login.php';
@@ -444,26 +445,28 @@ function time_elapsed_string($datetime, $full = false)
             <?php endif; ?>
 
             const commentsSection = $('#comments-' + postId);
+            const commentsContainer = $('#comments-container-' + postId);
 
             if (commentsSection.is(':visible')) {
-                commentsSection.hide();
+                commentsSection.slideUp(300);
             } else {
-                if (commentsSection.html().trim() === '') {
+                commentsSection.slideDown(300);
+                if (commentsContainer.html().trim() === '') {
                     loadComments(postId);
                 }
-                commentsSection.show();
             }
         }
 
         function loadComments(postId) {
-            $('#comments-' + postId).html('<div class="text-center p-3"><div class="spinner-border text-primary" role="status"></div><p class="mt-2">Loading comments...</p></div>');
+            const commentsContainer = $('#comments-container-' + postId);
+            commentsContainer.html('<div class="text-center p-3"><div class="spinner-border text-primary" role="status"></div><p class="mt-2">Loading comments...</p></div>');
 
             $.get('fetch_comments.php', { post_id: postId }, function (html) {
-                $('#comments-' + postId).html(html);
+                commentsContainer.html(html);
                 initializeCommentEvents();
             }).fail(function (xhr, status, error) {
                 console.error('Error loading comments:', error);
-                $('#comments-' + postId).html('<p class="text-danger p-3">Error loading comments. Please try again.</p>');
+                commentsContainer.html('<p class="text-danger p-3">Error loading comments. Please try again.</p>');
             });
         }
 
@@ -471,7 +474,7 @@ function time_elapsed_string($datetime, $full = false)
         function initializeCommentEvents() {
             console.log('Initializing comment events...');
 
-            // Add comment form
+            // Add comment form submission
             $(document).off('submit', '.add-comment-form').on('submit', '.add-comment-form', function (e) {
                 e.preventDefault();
                 console.log('Add comment form submitted');
@@ -494,11 +497,11 @@ function time_elapsed_string($datetime, $full = false)
                         loadComments(postId); // Reload comments
                         showToast('Comment added successfully!', 'success');
 
-                        // Update comment count
-                        const feedItem = form.closest('.feed-item');
-                        const commentCount = feedItem.find('.stats span:nth-child(2)');
-                        const currentCount = parseInt(commentCount.text()) || 0;
-                        commentCount.html('<i class="bi bi-chat"></i> ' + (currentCount + 1));
+                        // Update comment count in the post actions
+                        const commentBtn = $(`.action-btn[onclick*="toggleComments(${postId})"]`);
+                        const currentText = commentBtn.html();
+                        const currentCount = parseInt(currentText.match(/\d+/)?.[0] || 0);
+                        commentBtn.html(currentText.replace(/\d+/, currentCount + 1));
                     } else {
                         showToast(response.message || 'Error adding comment', 'error');
                     }
@@ -508,7 +511,7 @@ function time_elapsed_string($datetime, $full = false)
                 });
             });
 
-            // Reply form
+            // Reply form submission
             $(document).off('submit', '.reply-comment-form').on('submit', '.reply-comment-form', function (e) {
                 e.preventDefault();
                 console.log('Reply form submitted');
@@ -530,7 +533,7 @@ function time_elapsed_string($datetime, $full = false)
                         form.find('input[type="text"]').val('');
                         form.closest('.reply-form').hide();
 
-                        // Reload the comments
+                        // Reload the comments for this post
                         const postId = form.closest('.feed-item').data('post-id');
                         loadComments(postId);
 
@@ -544,10 +547,26 @@ function time_elapsed_string($datetime, $full = false)
                 });
             });
 
-            // Reply button click
+            // Toggle reply form
             $(document).off('click', '.reply-btn').on('click', '.reply-btn', function () {
                 const commentId = $(this).data('comment-id');
-                $('#reply-form-' + commentId).show();
+                const replyForm = $('#reply-form-' + commentId);
+                replyForm.slideToggle(200);
+            });
+
+            // Toggle replies visibility
+            $(document).off('click', '.toggle-replies').on('click', '.toggle-replies', function () {
+                const commentId = $(this).data('comment-id');
+                const repliesContainer = $('#replies-' + commentId);
+                const icon = $(this).find('i');
+
+                repliesContainer.slideToggle(200, function () {
+                    if (repliesContainer.is(':visible')) {
+                        icon.removeClass('bi-chevron-down').addClass('bi-chevron-up');
+                    } else {
+                        icon.removeClass('bi-chevron-up').addClass('bi-chevron-down');
+                    }
+                });
             });
         }
 
